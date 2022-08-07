@@ -112,11 +112,11 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 
 	// generate and store private keys
 	user.SourceKey = userlib.Argon2Key(user.SecurePassword, user.Salt, 16)
-	encryptionKey, err := userlib.HashKDF(user.SourceKey, []byte("encryption"))
+	encKey, err := userlib.HashKDF(user.SourceKey, []byte("encryption"))
 	if err != nil {
 		return nil, errors.New("An error occurred while generating an encryption key.")
 	}
-	encryptionKey = userlib.Hash(encryptionKey)[:16]
+	encKey = userlib.Hash(encKey)[:16]
 	macKey, err := userlib.HashKDF(user.SourceKey, []byte("mac"))
 	if err != nil {
 		return nil, errors.New("An error occurred while generating a MAC key.")
@@ -129,7 +129,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	if err != nil {
 		return nil, errors.New("An error occurred while marshalizing the user struct.")
 	}
-	authenticatedUser.Ciphertext = userlib.SymEnc(encryptionKey, userlib.RandomBytes(16), marshalizedUser)
+	authenticatedUser.Ciphertext = userlib.SymEnc(encKey, userlib.RandomBytes(16), marshalizedUser)
 	authenticatedUser.MACtag, err = userlib.HMACEval(macKey, authenticatedUser.Ciphertext)
 	if err != nil {
 		return nil, errors.New("An error occurred while generating a MAC tag.")
@@ -178,11 +178,11 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	securePassword := userlib.Hash(saltPassword)
 
 	sourceKey := userlib.Argon2Key(securePassword, salt, 16)
-	encryptionKey, err := userlib.HashKDF(sourceKey, []byte("encryption"))
+	encKey, err := userlib.HashKDF(sourceKey, []byte("encryption"))
 	if err != nil {
 		return nil, errors.New("An error occurred while generating an encryption key.")
 	}
-	encryptionKey = userlib.Hash(encryptionKey)[:16]
+	encKey = userlib.Hash(encKey)[:16]
 	macKey, err := userlib.HashKDF(sourceKey, []byte("mac"))
 	if err != nil {
 		return nil, errors.New("An error occurred while generating a MAC key.")
@@ -190,15 +190,15 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	macKey = userlib.Hash(macKey)[:16]
 
 	// verify and decrypt user struct
-	userMACTag, err := userlib.HMACEval(macKey, authenticatedUser.Ciphertext)
+	macTag, err := userlib.HMACEval(macKey, authenticatedUser.Ciphertext)
 	if err != nil {
 		return nil, errors.New("An error occurred while generating a MAC tag.")
 	}
-	if !userlib.HMACEqual(userMACTag, authenticatedUser.MACtag) {
+	if !userlib.HMACEqual(macTag, authenticatedUser.MACtag) {
 		return nil, errors.New("Cannot verify the MAC tag of the user struct.")
 	}
 
-	marshaledUser := userlib.SymDec(encryptionKey, authenticatedUser.Ciphertext)
+	marshaledUser := userlib.SymDec(encKey, authenticatedUser.Ciphertext)
 
 	var user User
 	err = json.Unmarshal(marshaledUser, &user)
@@ -209,82 +209,61 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	return &user, nil
 }
 
-/** Given a filename in the personal namespace of the caller, persistently stores the given content for future retrieval using the same filename. */
+// Helper function for authenticated encryption using user's sourcekey. */
 func (userdata *User) AuthenticatedEncryption(plaintext []byte, encMessage string, macMessage string) (ae AuthenticatedEncryption, err error) {
-	// generating keys
+	// generate keys
 	var encryptedObject AuthenticatedEncryption
-	encryptionKey, err := userlib.HashKDF(userdata.SourceKey, []byte(encMessage))
+	encKey, err := userlib.HashKDF(userdata.SourceKey, []byte(encMessage))
 	if err != nil {
-		return ae, errors.New("error occured while generating an encryption key")
+		return ae, errors.New("An error occured while generating an encryption key.")
 	}
-	encryptionKey = userlib.Hash(encryptionKey)[:16]
+	encKey = userlib.Hash(encKey)[:16]
 	macKey, err := userlib.HashKDF(userdata.SourceKey, []byte(macMessage))
 	if err != nil {
-		return ae, errors.New("error occured while generating a MAC key")
+		return ae, errors.New("An error occured while generating a MAC key.")
 	}
 	macKey = userlib.Hash(macKey)[:16]
 
-	// creating MAC tag & encrypt
-	ciphertext := userlib.SymEnc(encryptionKey, userlib.RandomBytes(16), plaintext)
+	// authenticated encryption on object
+	ciphertext := userlib.SymEnc(encKey, userlib.RandomBytes(16), plaintext)
 	macTag, err := userlib.HMACEval(macKey, ciphertext)
 	if err != nil {
-		return ae, errors.New("error occurred while tagging a ciphertext")
+		return ae, errors.New("An error occurred while generating a MAC tag.")
 	}
 	encryptedObject.Ciphertext = ciphertext
 	encryptedObject.MACtag = macTag
 	return encryptedObject, nil
 }
 
+// Helper function for authenticated decryption using user's sourcekey. */
 func (userdata *User) AuthenticatedDecryption(ae AuthenticatedEncryption, encMessage string, macMessage string) (plaintext []byte, err error) {
 	// generating keys
-	encryptionKey, err := userlib.HashKDF(userdata.SourceKey, []byte(encMessage))
+	encKey, err := userlib.HashKDF(userdata.SourceKey, []byte(encMessage))
 	if err != nil {
-		return nil, errors.New("error occured while generating an encryption key")
+		return nil, errors.New("An error occured while generating an encryption key.")
 	}
-	encryptionKey = userlib.Hash(encryptionKey)[:16]
+	encKey = userlib.Hash(encKey)[:16]
 	macKey, err := userlib.HashKDF(userdata.SourceKey, []byte(macMessage))
 	if err != nil {
 		return nil, errors.New("error occured while generating a MAC key")
 	}
 	macKey = userlib.Hash(macKey)[:16]
-	// creating MAC tag
+
 	macTag, err := userlib.HMACEval(macKey, ae.Ciphertext)
 	if err != nil {
 		return nil, errors.New("error occurred while tagging a ciphertext")
 	}
-	// verifying the MAC tag
+	// verify and decrypt
 	if !userlib.HMACEqual(macTag, ae.MACtag) {
 		return nil, errors.New("erorr occured while verifying the MAC tag")
 	}
-
-	// decrypting ciphertext
-	plaintext = userlib.SymDec(encryptionKey, ae.Ciphertext)
+	plaintext = userlib.SymDec(encKey, ae.Ciphertext)
 	return plaintext, nil
 }
 
-/** Persistently stores the given content for future retrieval using the same filename */
+/** Persistently stores the given content for future retrieval using the same filename. */
 func (userdata *User) StoreFile(filename string, content []byte) (err error) {
-	// re-encrypt filecontents and filepointers (use the right keys, not helper functions) (DONE)
-	// add file counter/index logic to file struct and file pointers
-	//
-	// file pointer key : Hash( Hash(file struct pointer uuid) + "enc/mac" + Count (index) )[:16] (DONE)
-	// file content key : Hash( Hash(file pointer uuid) + "enc/mac" )[:16] (DONE)
-	// file load needs to be changed
-	// in store file, we reset the index to 0, create file pointer with index 0, then increment index by one
-	// in append file, we create file pointer with index, then increment index by one
-	// owner file struct key in datastore, other people have key passed in when they are shared
-	// revoke access we change the file struct location & update family pointer
-
-	// create a new case for createinvitation if sender is not owner
-
-	/* check for errors */
-	// write cannot occur due to malicious action
-
-	/* check if the file already exists */
-	// check for middle layer pointer in Datastore
-
-	// MLP section
-
+	// middle layer pointer
 	mlpUUIDBytes := userlib.Hash([]byte(filename))
 	mlpUUIDBytes = append(mlpUUIDBytes, userlib.Hash([]byte(userdata.Username))...)
 	mlpUUIDBytes = userlib.Hash(mlpUUIDBytes)[:16]

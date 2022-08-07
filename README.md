@@ -3,6 +3,7 @@
 
 ## Spec: 
 > The full spec can be read here: https://su22.cs161.org/proj2/
+> 
 A client application for a secure file sharing system secured with cryptography.
 
 Since it is secured with cryptography, the server cannot view or tamper the data saved.

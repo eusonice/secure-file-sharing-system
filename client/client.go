@@ -703,6 +703,9 @@ func (userdata *User) AppendToFile(filename string, content []byte) error {
 	}
 
 	marshalizedAuthenticatedFile, ok := userlib.DatastoreGet(fileUUID)
+	if !ok {
+		return errors.New("File doesn't exist.")
+	}
 
 	var authenticatedFile AuthenticatedEncryption
 	err = json.Unmarshal(marshalizedAuthenticatedFile, &authenticatedFile)
@@ -988,8 +991,11 @@ func (userdata *User) LoadFile(filename string) (content []byte, err error) {
 		encKey = familyPointer.EncKey
 		macKey = familyPointer.MACKey
 	}
-	// get file struct UUID from the MLP
+	// get file uuid from the mlp
 	marshalizedAuthenticatedFile, ok := userlib.DatastoreGet(fileUUID)
+	if !ok {
+		return nil, errors.New("File doesn't exist.")
+	}
 
 	var authenticatedFile AuthenticatedEncryption
 	err = json.Unmarshal(marshalizedAuthenticatedFile, &authenticatedFile)
@@ -1564,6 +1570,9 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 
 	var mlp MiddleLayerPointer
 	err = json.Unmarshal(marshalizedMLP, &mlp)
+	if err != nil {
+		return errors.New("An error occured while unmarshalizing the MLP.")
+	}
 
 	// get keys
 	keyUUIDBytes := userlib.Hash([]byte(filename))

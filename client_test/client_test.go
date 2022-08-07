@@ -1,21 +1,11 @@
 package client_test
 
-// You MUST NOT change these default imports.  ANY additional imports may
-// break the autograder and everyone will be sad.
-
 import (
-	// Some imports use an underscore to prevent the compiler from complaining
-	// about unused imports.
-
 	_ "encoding/hex"
 	_ "errors"
 	_ "strconv"
 	_ "strings"
 	"testing"
-
-	// A "dot" import is used here so that the functions in the ginko and gomega
-	// modules can be used without an identifier. For example, Describe() and
-	// Expect() instead of ginko.Describe() and gomega.Expect().
 
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo"
@@ -32,7 +22,7 @@ func TestSetupAndExecution(t *testing.T) {
 }
 
 // ================================================
-// Global Variables (feel free to add more!)
+// Global Variables
 // ================================================
 const defaultPassword = "password"
 const emptyPassword = ""
@@ -52,15 +42,14 @@ const contentFour = "doing authenticated encryption a million times "
 const contentFive = "is not fun"
 
 // ================================================
-// Describe(...) blocks help you organize your tests
+// Describe(...) blocks help organize tests
 // into functional categories. They can be nested into
 // a tree-like structure.
 // ================================================
 
 var _ = Describe("Client Tests", func() {
 
-	// A few user declarations that may be used for testing. Remember to initialize these before you
-	// attempt to use them!
+	// a few user declarations used for testing
 	var alice *client.User
 	var bob *client.User
 	var charles *client.User
@@ -71,7 +60,7 @@ var _ = Describe("Client Tests", func() {
 	var horace *client.User
 	var ira *client.User
 
-	// These declarations may be useful for multi-session testing.
+	// declarations for multi-session testing
 	var alicePhone *client.User
 	var aliceLaptop *client.User
 	var aliceDesktop *client.User
@@ -80,7 +69,7 @@ var _ = Describe("Client Tests", func() {
 
 	var err error
 
-	// A bunch of filenames that may be useful.
+	// bunch of filenames for testing
 	emptyFile := ""
 	aliceFile := "aliceFile.txt"
 	aliceFoo := "Foo.txt"
@@ -96,14 +85,13 @@ var _ = Describe("Client Tests", func() {
 	iraFile := "iraFile.txt"
 
 	BeforeEach(func() {
-		// This runs before each test within this Describe block (including nested tests).
-		// Here, we reset the state of Datastore and Keystore so that tests do not interfere with each other.
-		// We also initialize
+		// runs before each test within this Describe block
+		// reset the state of datastore and keystore so that tests do not interfere with each other
 		userlib.DatastoreClear()
 		userlib.KeystoreClear()
 	})
 
-	// Helper function to measure bandwidth of a particular operation.
+	// helper function to measure bandwidth of a particular operation
 	measureBandwidth := func(probe func()) (bandwidth int) {
 		before := userlib.DatastoreGetBandwidth()
 		probe()
@@ -111,12 +99,13 @@ var _ = Describe("Client Tests", func() {
 		return after - before
 	}
 
-	// Helper function to count the number of keys in Keystore.
+	// helper function to count the number of keys in keystore
 	countKeys := (func() (numKeys int) {
 		m := userlib.KeystoreGetMap()
 		return len(m)
 	})
 
+	// helper function to swap the datastore value at the given two string uuids
 	datastoreSwap := (func(first string, second string) {
 		firstUUID := uuid.Must(uuid.Parse(first))
 		secondUUID := uuid.Must(uuid.Parse(second))
@@ -126,6 +115,7 @@ var _ = Describe("Client Tests", func() {
 		userlib.DatastoreSet(secondUUID, one)
 	})
 
+	// helper function to tamper the datastore value at the given string uuid
 	datastoreTamper := (func(toTamper string) {
 		UUID := uuid.Must(uuid.Parse(toTamper))
 		info, _ := userlib.DatastoreGet(UUID)
@@ -134,7 +124,6 @@ var _ = Describe("Client Tests", func() {
 	})
 
 	Describe("Basic Tests", func() {
-
 		Specify("Basic Test: Testing InitUser/GetUser on a single user.", func() {
 			userlib.DebugMsg("Initializing user Alice.")
 			alice, err = client.InitUser("alice", defaultPassword)
@@ -292,7 +281,6 @@ var _ = Describe("Client Tests", func() {
 			err = charles.AppendToFile(charlesFile, []byte(contentTwo))
 			Expect(err).ToNot(BeNil())
 		})
-
 	})
 
 	Describe("Custom Tests: Usernames and Passwords", func() {

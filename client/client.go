@@ -143,73 +143,73 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	return &user, nil
 }
 
+/** Obtains the User struct of a user who has already been initialized and returns a pointer to it. */
 func GetUser(username string, password string) (userdataptr *User, err error) {
-
-	/* check for errors */
+	// check for errors
 	userUUID, err := uuid.FromBytes(userlib.Hash([]byte(username))[:16])
 	if err != nil {
-		return nil, errors.New("error occurred while generating an userUUID")
-	}
-	marshalizedAuthenticatedUser, ok := userlib.DatastoreGet(userUUID)
-	if !ok {
-		return nil, errors.New("username doesn't exist")
+		return nil, errors.New("An error occurred while generating an userUUID.")
 	}
 
-	/* unmarshal the authenticated encryption */
+	// get the user struct
+	marshalizedAuthenticatedUser, ok := userlib.DatastoreGet(userUUID)
+	if !ok {
+		return nil, errors.New("Username doesn't exist.")
+	}
 	var authenticatedUser AuthenticatedEncryption
 	err = json.Unmarshal(marshalizedAuthenticatedUser, &authenticatedUser)
 	if err != nil {
-		return nil, errors.New("error occurred while marshalizing the object")
+		return nil, errors.New("An error occurred while unmarshalizing the authenticated user struct.")
 	}
 
-	/* retrieve salt */
+	// get salt
 	saltUUID, err := uuid.FromBytes(userlib.Hash([]byte(username + "salt"))[:16])
 	if err != nil {
-		return nil, errors.New("error occurred while generating a saltUUID")
+		return nil, errors.New("An error occurred while generating a saltUUID.")
 	}
 	salt, ok := userlib.DatastoreGet(saltUUID)
 	if !ok {
-		return nil, errors.New("salt doesn't exist")
+		return nil, errors.New("Salt doesn't exist.")
 	}
 
-	/* get keys after recalculating the secure password */
-	newPassword := []byte(password)
-	newPassword = append(newPassword, salt...)
-	securePassword := userlib.Hash(newPassword)
+	// get the secure password
+	saltPassword := []byte(password)
+	saltPassword = append(saltPassword, salt...)
+	securePassword := userlib.Hash(saltPassword)
 
 	sourceKey := userlib.Argon2Key(securePassword, salt, 16)
 	encryptionKey, err := userlib.HashKDF(sourceKey, []byte("encryption"))
 	if err != nil {
-		return nil, errors.New("error occurred while generating an encryption key")
+		return nil, errors.New("An error occurred while generating an encryption key.")
 	}
-	encryptionKey = userlib.Hash(encryptionKey)[:16] // ?
+	encryptionKey = userlib.Hash(encryptionKey)[:16]
 	macKey, err := userlib.HashKDF(sourceKey, []byte("mac"))
 	if err != nil {
-		return nil, errors.New("error occurred while generating a MAC key")
+		return nil, errors.New("An error occurred while generating a MAC key.")
 	}
-	macKey = userlib.Hash(macKey)[:16] // ?
+	macKey = userlib.Hash(macKey)[:16]
 
-	/* verify-and-decrypt to get user */
-	verMacTag, err := userlib.HMACEval(macKey, authenticatedUser.Ciphertext)
+	// verify and decrypt user struct
+	userMACTag, err := userlib.HMACEval(macKey, authenticatedUser.Ciphertext)
 	if err != nil {
-		return nil, errors.New("error occurred while creating a MAC tag")
+		return nil, errors.New("An error occurred while generating a MAC tag.")
+	}
+	if !userlib.HMACEqual(userMACTag, authenticatedUser.MACtag) {
+		return nil, errors.New("Cannot verify the MAC tag of the user struct.")
 	}
 
-	if !userlib.HMACEqual(verMacTag, authenticatedUser.MACtag) {
-		return nil, errors.New("cannot verify the MAC tag")
-	}
-
-	plaintext := userlib.SymDec(encryptionKey, authenticatedUser.Ciphertext)
+	marshaledUser := userlib.SymDec(encryptionKey, authenticatedUser.Ciphertext)
 
 	var user User
-	err = json.Unmarshal(plaintext, &user)
+	err = json.Unmarshal(marshaledUser, &user)
 	if err != nil {
-		return nil, errors.New("error occurred while marshalizing the object")
+		return nil, errors.New("An error occurred while unmarshalizing the user struct")
 	}
 
 	return &user, nil
 }
 
+/** Given a filename in the personal namespace of the caller, persistently stores the given content for future retrieval using the same filename. */
 func (userdata *User) AuthenticatedEncryption(plaintext []byte, encMessage string, macMessage string) (ae AuthenticatedEncryption, err error) {
 	// generating keys
 	var encryptedObject AuthenticatedEncryption

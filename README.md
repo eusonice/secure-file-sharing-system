@@ -22,11 +22,11 @@ The users can take the following actions:
 ~~Insert image here~~
 
 ## Notes: 
-There are two main servers.
+There are two main servers:
 - KeyStore: a trusted server where users can publish their public keys
 - DataStore: an untrusted server that provides persistent storage
 
-Cryptography is used for security.
+Cryptography is used for security:
 - AES-CTR mode encryption (symmetric)
 - HMAC tags (symmetric)
 - RSA-OEAP encryption (asymmetric)

@@ -77,13 +77,15 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	if err != nil {
 		return nil, errors.New("An error occurred while generating an userUUID.")
 	}
+
 	_, ok := userlib.DatastoreGet(userUUID)
 	if ok {
 		return nil, errors.New("Username already exists.")
 	}
 
-	// create a User struct
+	// create an user struct
 	var user User
+
 	user.Username = username
 
 	// generate a random salt
@@ -93,6 +95,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 		return nil, errors.New("An error occurred while generating a saltUUID.")
 	}
 	userlib.DatastoreSet(saltUUID, user.Salt)
+
 	saltPassword := []byte(password)
 	saltPassword = append(saltPassword, user.Salt...)
 	user.SecurePassword = userlib.Hash(saltPassword)
@@ -100,11 +103,11 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	// generate and store public keys
 	user.PEncKey, user.PDecKey, err = userlib.PKEKeyGen()
 	if err != nil {
-		return nil, errors.New("An error occurred while generating public keys.")
+		return nil, errors.New("An error occurred while generating public keys for the user.")
 	}
 	user.SigKey, user.VerKey, err = userlib.DSKeyGen()
 	if err != nil {
-		return nil, errors.New("An error occurred while generating signature keys.")
+		return nil, errors.New("An error occurred while generating signature keys for the user.")
 	}
 
 	userlib.KeystoreSet(user.Username+"pke", user.PEncKey)
@@ -114,12 +117,12 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	user.SourceKey = userlib.Argon2Key(user.SecurePassword, user.Salt, 16)
 	encKey, err := userlib.HashKDF(user.SourceKey, []byte("encryption"))
 	if err != nil {
-		return nil, errors.New("An error occurred while generating an encryption key.")
+		return nil, errors.New("An error occurred while generating an encryption key for the user.")
 	}
 	encKey = userlib.Hash(encKey)[:16]
 	macKey, err := userlib.HashKDF(user.SourceKey, []byte("mac"))
 	if err != nil {
-		return nil, errors.New("An error occurred while generating a MAC key.")
+		return nil, errors.New("An error occurred while generating a MAC key for the user.")
 	}
 	macKey = userlib.Hash(macKey)[:16]
 
@@ -127,16 +130,16 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	var authenticatedUser AuthenticatedEncryption
 	marshalizedUser, err := json.Marshal(user)
 	if err != nil {
-		return nil, errors.New("An error occurred while marshalizing the user struct.")
+		return nil, errors.New("An error occurred while marshalizing the user.")
 	}
 	authenticatedUser.Ciphertext = userlib.SymEnc(encKey, userlib.RandomBytes(16), marshalizedUser)
 	authenticatedUser.MACtag, err = userlib.HMACEval(macKey, authenticatedUser.Ciphertext)
 	if err != nil {
-		return nil, errors.New("An error occurred while generating a MAC tag.")
+		return nil, errors.New("An error occurred while generating a MAC tag for the authenticated user.")
 	}
 	marshalizedAuthenticatedUser, err := json.Marshal(authenticatedUser)
 	if err != nil {
-		return nil, errors.New("An error occurred while marshalizing the authenticated user struct.")
+		return nil, errors.New("An error occurred while marshalizing the authenticated user.")
 	}
 	userlib.DatastoreSet(userUUID, marshalizedAuthenticatedUser)
 
@@ -156,10 +159,12 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	if !ok {
 		return nil, errors.New("Username doesn't exist.")
 	}
+
 	var authenticatedUser AuthenticatedEncryption
+
 	err = json.Unmarshal(marshalizedAuthenticatedUser, &authenticatedUser)
 	if err != nil {
-		return nil, errors.New("An error occurred while unmarshalizing the authenticated user struct.")
+		return nil, errors.New("An error occurred while unmarshalizing the authenticated user.")
 	}
 
 	// get salt
@@ -180,30 +185,31 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	sourceKey := userlib.Argon2Key(securePassword, salt, 16)
 	encKey, err := userlib.HashKDF(sourceKey, []byte("encryption"))
 	if err != nil {
-		return nil, errors.New("An error occurred while generating an encryption key.")
+		return nil, errors.New("An error occurred while generating an encryption key for the user.")
 	}
 	encKey = userlib.Hash(encKey)[:16]
 	macKey, err := userlib.HashKDF(sourceKey, []byte("mac"))
 	if err != nil {
-		return nil, errors.New("An error occurred while generating a MAC key.")
+		return nil, errors.New("An error occurred while generating a MAC key for the user.")
 	}
 	macKey = userlib.Hash(macKey)[:16]
 
 	// verify and decrypt user struct
 	macTag, err := userlib.HMACEval(macKey, authenticatedUser.Ciphertext)
 	if err != nil {
-		return nil, errors.New("An error occurred while generating a MAC tag.")
+		return nil, errors.New("An error occurred while generating a MAC tag for the user.")
 	}
 	if !userlib.HMACEqual(macTag, authenticatedUser.MACtag) {
-		return nil, errors.New("Cannot verify the MAC tag of the user struct.")
+		return nil, errors.New("Cannot verify the MAC tag of the user.")
 	}
 
-	marshaledUser := userlib.SymDec(encKey, authenticatedUser.Ciphertext)
+	marshalizedUser := userlib.SymDec(encKey, authenticatedUser.Ciphertext)
 
 	var user User
-	err = json.Unmarshal(marshaledUser, &user)
+
+	err = json.Unmarshal(marshalizedUser, &user)
 	if err != nil {
-		return nil, errors.New("An error occurred while unmarshalizing the user struct")
+		return nil, errors.New("An error occurred while unmarshalizing the user.")
 	}
 
 	return &user, nil
@@ -213,14 +219,15 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 func (userdata *User) AuthenticatedEncryption(plaintext []byte, encMessage string, macMessage string) (ae AuthenticatedEncryption, err error) {
 	// generate keys
 	var encryptedObject AuthenticatedEncryption
+
 	encKey, err := userlib.HashKDF(userdata.SourceKey, []byte(encMessage))
 	if err != nil {
-		return ae, errors.New("An error occured while generating an encryption key.")
+		return ae, errors.New("An error occured while generating an encryption key for the object.")
 	}
 	encKey = userlib.Hash(encKey)[:16]
 	macKey, err := userlib.HashKDF(userdata.SourceKey, []byte(macMessage))
 	if err != nil {
-		return ae, errors.New("An error occured while generating a MAC key.")
+		return ae, errors.New("An error occured while generating a MAC key for the object.")
 	}
 	macKey = userlib.Hash(macKey)[:16]
 
@@ -228,10 +235,11 @@ func (userdata *User) AuthenticatedEncryption(plaintext []byte, encMessage strin
 	ciphertext := userlib.SymEnc(encKey, userlib.RandomBytes(16), plaintext)
 	macTag, err := userlib.HMACEval(macKey, ciphertext)
 	if err != nil {
-		return ae, errors.New("An error occurred while generating a MAC tag.")
+		return ae, errors.New("An error occured while generating a MAC tag for the object.")
 	}
 	encryptedObject.Ciphertext = ciphertext
 	encryptedObject.MACtag = macTag
+
 	return encryptedObject, nil
 }
 
@@ -240,24 +248,25 @@ func (userdata *User) AuthenticatedDecryption(ae AuthenticatedEncryption, encMes
 	// generating keys
 	encKey, err := userlib.HashKDF(userdata.SourceKey, []byte(encMessage))
 	if err != nil {
-		return nil, errors.New("An error occured while generating an encryption key.")
+		return nil, errors.New("An error occured while generating an encryption key for the object.")
 	}
 	encKey = userlib.Hash(encKey)[:16]
 	macKey, err := userlib.HashKDF(userdata.SourceKey, []byte(macMessage))
 	if err != nil {
-		return nil, errors.New("error occured while generating a MAC key")
+		return nil, errors.New("An error occured while generating a MAC key for the object.")
 	}
 	macKey = userlib.Hash(macKey)[:16]
 
 	macTag, err := userlib.HMACEval(macKey, ae.Ciphertext)
 	if err != nil {
-		return nil, errors.New("error occurred while tagging a ciphertext")
+		return nil, errors.New("An error occurred while generating a MAC tag for the object.")
 	}
 	// verify and decrypt
 	if !userlib.HMACEqual(macTag, ae.MACtag) {
-		return nil, errors.New("erorr occured while verifying the MAC tag")
+		return nil, errors.New("Cannot verify the MAC tag of the object.")
 	}
 	plaintext = userlib.SymDec(encKey, ae.Ciphertext)
+
 	return plaintext, nil
 }
 
@@ -269,208 +278,196 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 	mlpUUIDBytes = userlib.Hash(mlpUUIDBytes)[:16]
 	mlpUUID, err := uuid.FromBytes(mlpUUIDBytes)
 	if err != nil {
-		return errors.New("error occurred while generating UUID for marshaled MLP struct")
+		return errors.New("An error occurred while generating a MLP UUID.")
 	}
+
 	// check if file with this filename already exists in caller's personal namespace
+	marshalizedAuthenticatedMLP, ok := userlib.DatastoreGet(mlpUUID)
 
-	marshaledSecureMLPofExistingFile, ok := userlib.DatastoreGet(mlpUUID)
-
-	var fileStruct File
-	var secureFileStructUUID userlib.UUID
+	var file File
+	var fileUUID userlib.UUID
 
 	var encKey []byte
 	var macKey []byte
-	if ok { // CASE WHERE FILE ALREADY EXISTS
-		// unmarshal the bytes we just got into an MLP
-		var aeMLPOfExistingFile AuthenticatedEncryption
-		err = json.Unmarshal(marshaledSecureMLPofExistingFile, &aeMLPOfExistingFile)
+	if ok { // case 1: file already exists
+		var authenticatedOldMLP AuthenticatedEncryption
+
+		err = json.Unmarshal(marshalizedAuthenticatedMLP, &authenticatedOldMLP)
 		if err != nil {
-			return errors.New("error occurred while unmarshaling AE of MLP")
+			return errors.New("An error occurred while unmarshalizing the authenticated old MLP.")
 		}
 
 		encMessage := "encrypting MLP of " + filename
 		macMessage := "tagging MLP of " + filename
-		marshaledMLPofExistingFile, err := userdata.AuthenticatedDecryption(aeMLPOfExistingFile, encMessage, macMessage)
+		marshaledMLP, err := userdata.AuthenticatedDecryption(authenticatedOldMLP, encMessage, macMessage)
 		if err != nil {
-			return errors.New("error occured while decrypting the existing mlp")
-		}
-		// unmarshal MLP of existing file
-		var mlpOfExistingFile MiddleLayerPointer
-		err = json.Unmarshal(marshaledMLPofExistingFile, &mlpOfExistingFile)
-		if err != nil {
-			return errors.New("error occurred while unmarshaling mlp of existing file")
+			return errors.New("An error occured while decrypting the authenticated old MLP.")
 		}
 
-		var secureFileUUID userlib.UUID
+		var oldMLP MiddleLayerPointer
+		err = json.Unmarshal(marshaledMLP, &oldMLP)
+		if err != nil {
+			return errors.New("An error occurred while unmarshalizing the old MLP.")
+		}
 
-		// BRANCH POINT HERE
-		if mlpOfExistingFile.IsOwner {
-			// owner case
-			secureFileUUID = mlpOfExistingFile.FileStructPointer
+		var getFileUUID userlib.UUID
+		if oldMLP.IsOwner {
+			// case 1-1: owner
+			getFileUUID = oldMLP.FileStructPointer
 
-			// get keys from AE in datastore
-			// get the UUID for the keys
+			// get keys
 			keyUUIDBytes := userlib.Hash([]byte(filename))
 			keyUUIDBytes = append(keyUUIDBytes, userlib.Hash([]byte(userdata.Username))...)
 			keyUUIDBytes = append(keyUUIDBytes, userlib.Hash([]byte("keys"))...)
 			keyUUIDBytes = userlib.Hash(keyUUIDBytes)[:16]
 			keyUUID, err := uuid.FromBytes(keyUUIDBytes)
 			if err != nil {
-				return errors.New("error occurred while generating UUID for keys")
+				return errors.New("An error occurred while generating a key UUID.")
 			}
-			marshaledAEKeys, ok := userlib.DatastoreGet(keyUUID)
+			marshalizedAuthenticatedKeys, ok := userlib.DatastoreGet(keyUUID)
 			if !ok {
-				return errors.New("error occurred while getting marshaled AE of keys from datastore")
+				return errors.New("Key doesn't exist.")
 			}
-			var aeKeys AuthenticatedEncryption
-			err = json.Unmarshal(marshaledAEKeys, &aeKeys)
+			var authenticatedKeys AuthenticatedEncryption
+			err = json.Unmarshal(marshalizedAuthenticatedKeys, &authenticatedKeys)
 			if err != nil {
-
+				return errors.New("An error occured while unmarshalizing the authenticated keys.")
 			}
-			// verify and decrypt to get keys
+
+			// verify and decrypt
 			encMessage := "encrypting keys of " + filename
 			macMessage := "tagging keys of " + filename
 
-			keyBytes, err := userdata.AuthenticatedDecryption(aeKeys, encMessage, macMessage)
+			concatenatedKeys, err := userdata.AuthenticatedDecryption(authenticatedKeys, encMessage, macMessage)
 			if err != nil {
-				return errors.New("error occured while decrypting the keys !")
+				return errors.New("An error occured while decrypting the authenticated keys.")
 			}
-			encKey = keyBytes[:16]
-			macKey = keyBytes[16:32]
-		} else {
-			// recipient case
-			// get the family pointer
-			// set secureFile UUID from family pointer
-			secureFamilyPointerUUID := mlpOfExistingFile.FileStructPointer
-			marshaledSecureFamilyPointer, ok := userlib.DatastoreGet(secureFamilyPointerUUID)
+			encKey = concatenatedKeys[:16]
+			macKey = concatenatedKeys[16:32]
+		} else { // case 1-2: recipient
+			familyPointerUUID := oldMLP.FileStructPointer
+			marshalizedAuthenticatedFamilyPointer, ok := userlib.DatastoreGet(familyPointerUUID)
 			if !ok {
-				return errors.New("error occurred while getting secure family pointer from datastore 1")
+				return errors.New("Family pointer doesn't exist.")
 			}
-
-			// unmarshal AE
-			var aeFamPointer AuthenticatedEncryption
-			err = json.Unmarshal(marshaledSecureFamilyPointer, &aeFamPointer)
+			var authenticatedFamilyPointer AuthenticatedEncryption
+			err = json.Unmarshal(marshalizedAuthenticatedFamilyPointer, &authenticatedFamilyPointer)
 			if err != nil {
-				return errors.New("error occurred while marshaling family pointer")
+				return errors.New("An error occurred while unmarshalizing the authenticated family pointer.")
 			}
 
-			// derive the keys for decrypting family pointer
-			famPointerEncKey := userlib.Hash([]byte(string(secureFamilyPointerUUID[:]) + "enc"))[:16]
-			famPointerMACKey := userlib.Hash([]byte(string(secureFamilyPointerUUID[:]) + "mac"))[:16]
+			familyPointerEncKey := userlib.Hash([]byte(string(familyPointerUUID[:]) + "enc"))[:16]
+			familyPointerMACKey := userlib.Hash([]byte(string(familyPointerUUID[:]) + "mac"))[:16]
 
-			// verify
-			newMAC, err := userlib.HMACEval(famPointerMACKey, aeFamPointer.Ciphertext)
+			// verify and decrypt
+			familyPointerMACTag, err := userlib.HMACEval(familyPointerMACKey, authenticatedFamilyPointer.Ciphertext)
 			if err != nil {
-				return errors.New("error occurred while getting new MAC of ciphertext")
+				return errors.New("An error occurred while generating a MAC tag for the authenticated family pointer.")
 			}
-			if !userlib.HMACEqual(newMAC, aeFamPointer.MACtag) {
-				return errors.New("error occurred while verifying the family pointer struct 1")
+			if !userlib.HMACEqual(familyPointerMACTag, authenticatedFamilyPointer.MACtag) {
+				return errors.New("Cannot verify the MAC tag of the authenticated family pointer.")
 			}
+			marshalizedFamilyPointer := userlib.SymDec(familyPointerEncKey, authenticatedFamilyPointer.Ciphertext)
 
-			// decrypt
-			plaintext := userlib.SymDec(famPointerEncKey, aeFamPointer.Ciphertext)
 			var familyPointer FamilyPointer
-			err = json.Unmarshal(plaintext, &familyPointer)
+
+			err = json.Unmarshal(marshalizedFamilyPointer, &familyPointer)
 			if err != nil {
-				return errors.New("error occured while umarshalizing the family pointer")
+				return errors.New("An error occured while umarshalizing the aithenticated family pointer.")
 			}
+
 			encKey = familyPointer.EncKey
 			macKey = familyPointer.MACKey
-			secureFileUUID = familyPointer.FileStructPointer
-		} // we have uuid to the file struct & enc, mac key
+			getFileUUID = familyPointer.FileStructPointer
+		}
 
 		// get file struct from datastore
-		secureFileBytes, ok := userlib.DatastoreGet(secureFileUUID)
+		marshalizedAuthenticatedFile, ok := userlib.DatastoreGet(getFileUUID)
 		if !ok {
-			return errors.New("error occurred while retrieving marshaled AE of file struct")
+			return errors.New("File doesn't exist.")
 		}
-		// unmarshal AE of file struct
-		var aeFileStruct AuthenticatedEncryption
-		err = json.Unmarshal(secureFileBytes, &aeFileStruct)
+
+		var authenticatedFile AuthenticatedEncryption
+
+		err = json.Unmarshal(marshalizedAuthenticatedFile, &authenticatedFile)
 		if err != nil {
-			return errors.New("error occurred while unmarshaling AE of file struct")
+			return errors.New("An error occurred while unmarshalizing the authenticated file.")
 		}
 
-		// use previously retrieved keys to verify-and-decrypt file struct
-		newMAC, err := userlib.HMACEval(macKey, aeFileStruct.Ciphertext)
+		// verify and decrypt
+		fileMACTag, err := userlib.HMACEval(macKey, authenticatedFile.Ciphertext)
 		if err != nil {
-			return errors.New("error occurred while creating new MAC tag for ciphertext")
+			return errors.New("An error occurred while generating a MAC tag for the authenticated file.")
 		}
-
-		if !userlib.HMACEqual(newMAC, aeFileStruct.MACtag) {
-			return errors.New("error occured while verifying the MAC tag of the file struct")
+		if !userlib.HMACEqual(fileMACTag, authenticatedFile.MACtag) {
+			return errors.New("Cannot verify the MAC tag of the authenticated file.")
 		}
-		marshaledFileStruct := userlib.SymDec(encKey, aeFileStruct.Ciphertext)
-
-		// unmarshal file struct
-		err = json.Unmarshal(marshaledFileStruct, &fileStruct)
+		marshalizedFile := userlib.SymDec(encKey, authenticatedFile.Ciphertext)
+		err = json.Unmarshal(marshalizedFile, &file)
 		if err != nil {
-			return errors.New("error occurred while unmarshaling the file struct")
+			return errors.New("An error occurred while unmarshalizing the authenticated file.")
 		}
-		secureFileStructUUID = secureFileUUID //
-		fileStruct.Count = 0                  // hey i just added this
-		// got the file struct
-	} else { // CASE WHERE FILE DOES NOT EXIST
-		// uuid
-		/* create a file struct and set its attributes */
-		// owner true
-		/* if file doesn't exist */
-		fileStruct.FileOwnerName = userdata.Username
-		fileStruct.Count = 0 // hey i just added this
 
-		// var sharedList []uuid.UUID ///////// *** i changed data structure
+		fileUUID = getFileUUID
+	} else { // case 2: file doesn't exist
+		file.FileOwnerName = userdata.Username
+
 		var sharedList map[string]uuid.UUID
-		sharedList = make(map[string]uuid.UUID)
-		// sharedList = make([]uuid.UUID, 0)
 
-		marshaledSharedList, err := json.Marshal(sharedList)
+		sharedList = make(map[string]uuid.UUID)
+
+		marshalizedSharedList, err := json.Marshal(sharedList)
+		if err != nil {
+			return errors.New("An error occured while marshalizing the shared list.")
+		}
 
 		sharedListEncKey, err := userlib.HashKDF(userdata.SourceKey, []byte("encrypt key for shared list of "+filename))
 		if err != nil {
-			return errors.New("error occured while creating an encryption key for shared list")
+			return errors.New("An error occured while generating an encryption key for the shared list.")
 		}
 		sharedListEncKey = userlib.Hash(sharedListEncKey)[:16]
-
 		sharedListMACKey, err := userlib.HashKDF(userdata.SourceKey, []byte("mac key for shared list of "+filename))
 		if err != nil {
-			return errors.New("error occured while creating an mac key for shared list")
+			return errors.New("An error occured while generating a MAC key for the shared list.")
 		}
 		sharedListMACKey = userlib.Hash(sharedListMACKey)[:16]
 
-		fileStruct.SharedListCipherText = userlib.SymEnc(sharedListEncKey, userlib.RandomBytes(16), marshaledSharedList)
-		fileStruct.SharedListMACTag, err = userlib.HMACEval(sharedListMACKey, fileStruct.SharedListCipherText)
-		secureFileStructUUID = uuid.New()
+		file.SharedListCipherText = userlib.SymEnc(sharedListEncKey, userlib.RandomBytes(16), marshalizedSharedList)
+		file.SharedListMACTag, err = userlib.HMACEval(sharedListMACKey, file.SharedListCipherText)
+		if err != nil {
+			return errors.New("An error occured while generating a MAC tag for the shared list.")
+		}
 
-		/* /////// KEYS //////// */
-		/* generate keys, encrypt, tag, and store it in Datastore */
+		fileUUID = uuid.New()
 
+		// generate keys
 		encKey = userlib.RandomBytes(16)
 		macKey = userlib.RandomBytes(16)
 
-		keyBytes := encKey
-		keyBytes = append(keyBytes, macKey...)
+		concatenatedKeys := encKey
+		concatenatedKeys = append(concatenatedKeys, macKey...)
 
-		var encryptedKeys AuthenticatedEncryption
+		var authenticatedKeys AuthenticatedEncryption
+
 		encMessage := "encrypting keys of " + filename
 		macMessage := "tagging keys of " + filename
-		encryptedKeys, err = userdata.AuthenticatedEncryption(keyBytes, encMessage, macMessage)
+		authenticatedKeys, err = userdata.AuthenticatedEncryption(concatenatedKeys, encMessage, macMessage)
 		if err != nil {
-			return errors.New("error occurred while creating authenticated encryption of key concatenation")
+			return errors.New("An error occurred while doing authenticated encryption on the keys.")
 		}
 
-		// store keys
 		keyUUIDBytes := userlib.Hash([]byte(filename))
 		keyUUIDBytes = append(keyUUIDBytes, userlib.Hash([]byte(userdata.Username))...)
 		keyUUIDBytes = append(keyUUIDBytes, userlib.Hash([]byte("keys"))...)
 		keyUUIDBytes = userlib.Hash(keyUUIDBytes)[:16]
 		keyUUID, err := uuid.FromBytes(keyUUIDBytes)
 		if err != nil {
-			return errors.New("error occurred while generating UUID for keys")
+			return errors.New("An error occurred while generating a key UUID.")
 		}
 
-		marshalizedEncryptedKeys, err := json.Marshal(encryptedKeys)
+		marshalizedEncryptedKeys, err := json.Marshal(authenticatedKeys)
 		if err != nil {
-			return errors.New("error occurred while marshalizing the keys")
+			return errors.New("An error occurred while marshalizing the authenticated keys.")
 		}
 
 		userlib.DatastoreSet(keyUUID, marshalizedEncryptedKeys)
@@ -478,177 +475,162 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 		// create middle layer pointer struct
 		var mlp MiddleLayerPointer
 		mlp.Filename = filename
-		mlp.FileStructPointer = secureFileStructUUID
+		mlp.FileStructPointer = fileUUID
 		mlp.HashedUsername = userlib.Hash([]byte(userdata.Username))
 		mlp.IsOwner = true
-		// ...
 
-		// marshal the mlp
-		marshaledMLP, err := json.Marshal(mlp)
+		marshalizedMLP, err := json.Marshal(mlp)
 		if err != nil {
-			return errors.New("error occurred while marshaling middle layer pointer struct")
+			return errors.New("An error occurred while marshalizing the MLP.")
 		}
 
-		// encrypt the MLP in an AE
-		var aeMLP AuthenticatedEncryption
+		// encrypt and mac
+		var authenticatedMLP AuthenticatedEncryption
+
 		encMessage = "encrypting MLP of " + filename
 		macMessage = "tagging MLP of " + filename
-		aeMLP, err = userdata.AuthenticatedEncryption(marshaledMLP, encMessage, macMessage)
-
-		// marshal the AE of MLP
-		marshaledAEofMLP, err := json.Marshal(aeMLP)
+		authenticatedMLP, err = userdata.AuthenticatedEncryption(marshalizedMLP, encMessage, macMessage)
 		if err != nil {
-			return errors.New("error occurred while marshaling AE of MLP")
+			return errors.New("An error occured while doing authenticated encryption on the marshalized MLP.")
 		}
 
-		// create UUID for MLP
+		marshalizedAuthenticatedMLP, err := json.Marshal(authenticatedMLP)
+		if err != nil {
+			return errors.New("An error occurred while marshalizing the authenticated MLP.")
+		}
+
 		mlpUUIDBytes = userlib.Hash([]byte(filename))
 		mlpUUIDBytes = append(mlpUUIDBytes, userlib.Hash([]byte(userdata.Username))...)
 		mlpUUIDBytes = userlib.Hash(mlpUUIDBytes)[:16]
 		mlpUUID, err = uuid.FromBytes(mlpUUIDBytes)
 		if err != nil {
-			return errors.New("error occurred while generating UUID for marshaled MLP struct")
+			return errors.New("An error occurred while generating authenticated MLP UUID.")
 		}
 
-		// store the middle layer pointer in datastore
-		userlib.DatastoreSet(mlpUUID, marshaledAEofMLP)
+		userlib.DatastoreSet(mlpUUID, marshalizedAuthenticatedMLP)
 	}
 
-	// encrypt the content
-	// generate helper pointers for file contents
-	secureFileContentUUID := uuid.New()
-	secureFilePointerUUID := uuid.New()
+	file.Count = 0
+	fileContentUUID := uuid.New()
+	filePointerUUID := uuid.New()
 
-	/* creating authenticated encryption struct for contents */
-	var encryptedContent AuthenticatedEncryption
+	var authenticatedContent AuthenticatedEncryption
 
-	// encMessage := "encrypting contents of" + filename
-	// macMessage := "tagging contents of" + filename
+	contentEncKey := userlib.Hash([]byte(string(filePointerUUID[:]) + "enc"))[:16]
+	contentMACKey := userlib.Hash([]byte(string(filePointerUUID[:]) + "mac"))[:16]
 
-	contentEncKey := userlib.Hash([]byte(string(secureFilePointerUUID[:]) + "enc"))[:16]
-	contentMACKey := userlib.Hash([]byte(string(secureFilePointerUUID[:]) + "mac"))[:16]
-
-	encryptedContent.Ciphertext = userlib.SymEnc(contentEncKey, userlib.RandomBytes(16), content)
-	encryptedContent.MACtag, err = userlib.HMACEval(contentMACKey, encryptedContent.Ciphertext)
+	authenticatedContent.Ciphertext = userlib.SymEnc(contentEncKey, userlib.RandomBytes(16), content)
+	authenticatedContent.MACtag, err = userlib.HMACEval(contentMACKey, authenticatedContent.Ciphertext)
 	if err != nil {
-		return errors.New("error occurred while creating MAC for contents")
+		return errors.New("An error occured while generating a MAC tag for the authenticated content.")
 	}
 
-	marshalizedContent, err := json.Marshal(encryptedContent)
-	userlib.DatastoreSet(secureFileContentUUID, marshalizedContent)
+	marshalizedAuthenticatedContent, err := json.Marshal(authenticatedContent)
+	if err != nil {
+		return errors.New("An error occured while marshalizing the authenticated content.")
+	}
+	userlib.DatastoreSet(fileContentUUID, marshalizedAuthenticatedContent)
 
-	/* create a file pointer struct */
+	// create file pointer struct
 	var filePointer FilePointer
-	filePointer.Content = secureFileContentUUID
+
+	filePointer.Content = fileContentUUID
 	filePointer.Index = 0
 
-	/////////////// added new code here
-	// marshalize the file pointer s
-	filePointerBytes, err := json.Marshal(filePointer)
+	marshalizedFilePointer, err := json.Marshal(filePointer)
 	if err != nil {
-		return errors.New("error occurred while marshaling the file pointer")
+		return errors.New("An error occurred while marshalizing the file pointer.")
 	}
 
 	// encrypt the file pointer with keys generated from file struct UUID and file pointer
-	filePointerEncKey := userlib.Hash([]byte(string(secureFileStructUUID[:]) + "enc" + strconv.Itoa(fileStruct.Count)))[:16]
-	filePointerMACKey := userlib.Hash([]byte(string(secureFileStructUUID[:]) + "mac" + strconv.Itoa(fileStruct.Count)))[:16]
+	filePointerEncKey := userlib.Hash([]byte(string(fileUUID[:]) + "enc" + strconv.Itoa(file.Count)))[:16]
+	filePointerMACKey := userlib.Hash([]byte(string(fileUUID[:]) + "mac" + strconv.Itoa(file.Count)))[:16]
 
-	var aeFilePointer AuthenticatedEncryption
-	aeFilePointer.Ciphertext = userlib.SymEnc(filePointerEncKey, userlib.RandomBytes(16), filePointerBytes)
-	aeFilePointer.MACtag, err = userlib.HMACEval(filePointerMACKey, aeFilePointer.Ciphertext)
+	var authenticatedFilePointer AuthenticatedEncryption
+
+	authenticatedFilePointer.Ciphertext = userlib.SymEnc(filePointerEncKey, userlib.RandomBytes(16), marshalizedFilePointer)
+	authenticatedFilePointer.MACtag, err = userlib.HMACEval(filePointerMACKey, authenticatedFilePointer.Ciphertext)
 	if err != nil {
-		return errors.New("error occured while generating a MAC tag for ae file pointer")
+		return errors.New("An error occured while generating a MAC tag for the authenticated file pointer.")
 	}
 
-	// marshal the AE of file pointer
-	aeFilePointerBytes, err := json.Marshal(aeFilePointer)
+	marshalizedAuthenticatedFilePointer, err := json.Marshal(authenticatedFilePointer)
 	if err != nil {
-		return errors.New("error occurred while marshaling")
-	}
-	/* store file pointer struct in datastore */
-	userlib.DatastoreSet(secureFilePointerUUID, aeFilePointerBytes)
-
-	// add content to file
-	fileStruct.FileContentsFirst = secureFilePointerUUID
-	fileStruct.FileContentsLast = secureFilePointerUUID
-	fileStruct.Count = 1
-
-	// marshal the file struct
-	fileStructBytes, err := json.Marshal(fileStruct)
-	if err != nil {
-		return errors.New("error occurred while marshalizing the file struct")
+		return errors.New("An error occurred while marshalizing the authenticated file pointer.")
 	}
 
-	// encrypt and store file struct
-	var autEncFileStruct AuthenticatedEncryption
-	autEncFileStruct.Ciphertext = userlib.SymEnc(encKey, userlib.RandomBytes(16), fileStructBytes)
-	autEncFileStruct.MACtag, err = userlib.HMACEval(macKey, autEncFileStruct.Ciphertext)
+	userlib.DatastoreSet(filePointerUUID, marshalizedAuthenticatedFilePointer)
+
+	// save pointers in file struct
+	file.FileContentsFirst = filePointerUUID
+	file.FileContentsLast = filePointerUUID
+	file.Count = 1
+
+	marshalizedFile, err := json.Marshal(file)
 	if err != nil {
-		return errors.New("error occurred while tagging the file struct bytes")
+		return errors.New("An error occurred while marshalizing the file.")
 	}
 
-	secureFileStructBytes, err := json.Marshal(autEncFileStruct)
+	var authenticatedFile AuthenticatedEncryption
+
+	authenticatedFile.Ciphertext = userlib.SymEnc(encKey, userlib.RandomBytes(16), marshalizedFile)
+	authenticatedFile.MACtag, err = userlib.HMACEval(macKey, authenticatedFile.Ciphertext)
 	if err != nil {
-		return errors.New("error occurred while marshaling the authenticated encryption of the file struct")
+		return errors.New("An error occurred while generating a MAC tag for the authenticated file.")
+	}
+	marshalizedAuthenticatedFile, err := json.Marshal(authenticatedFile)
+	if err != nil {
+		return errors.New("An error occurred while marshalizing the authenticated file.")
 	}
 
-	// generate random UUID for this secure file struct's bytes
-	userlib.DatastoreSet(secureFileStructUUID, secureFileStructBytes)
-
-	// store symkeys used for decrypting this file, using autenc
-	// concatenate the keys??? which are byte slices???
-
-	// var autEncSymKeys AuthenticatedEncryption
-	// autEncSymKeys.Ciphertext =
+	// generate random UUID and store the file
+	userlib.DatastoreSet(fileUUID, marshalizedAuthenticatedFile)
 
 	return nil
 }
 
+/** Appends the given content to the end of the corresponding file. */
 func (userdata *User) AppendToFile(filename string, content []byte) error {
-	// access middle layer pointer
-
+	// get middle layer pointer
 	mlpUUIDBytes := userlib.Hash([]byte(filename))
 	mlpUUIDBytes = append(mlpUUIDBytes, userlib.Hash([]byte(userdata.Username))...)
 	mlpUUIDBytes = userlib.Hash(mlpUUIDBytes)[:16]
 	mlpUUID, err := uuid.FromBytes(mlpUUIDBytes)
 	if err != nil {
-		return errors.New("file does not exist in user's personal namespace")
+		return errors.New("An error occurred while generating a MLP UUID.")
 	}
 
-	// get the AE of MLP from datastore
-	aeMLPBytes, ok := userlib.DatastoreGet(mlpUUID)
+	marshalizedAuthenticatedMLP, ok := userlib.DatastoreGet(mlpUUID)
 	if !ok {
-		return errors.New("error occurred while retrieving marshaled MLP bytes 2")
+		return errors.New("MLP doesn't exist.")
 	}
 
-	// unmarshal the MLP to find the file struct UUID
-	var aeMLP AuthenticatedEncryption
-	err = json.Unmarshal(aeMLPBytes, &aeMLP)
+	var authenticatedMLP AuthenticatedEncryption
+
+	err = json.Unmarshal(marshalizedAuthenticatedMLP, &authenticatedMLP)
 	if err != nil {
-		return errors.New("error occurred while unmarshaling ae MLP")
+		return errors.New("eAn rror occurred while unmarshalizing the authenticated MLP.")
 	}
 
-	// verify and decrypt the damn MLP
 	encMessage := "encrypting MLP of " + filename
 	macMessage := "tagging MLP of " + filename
-	mlpBytes, err := userdata.AuthenticatedDecryption(aeMLP, encMessage, macMessage)
+	marshalizedMLP, err := userdata.AuthenticatedDecryption(authenticatedMLP, encMessage, macMessage)
 	if err != nil {
-		return errors.New("error occurred while verify-and-decrypting AE of MLP 1")
-	}
-	// initialize MLP struct
-	var mlpStruct MiddleLayerPointer
-	err = json.Unmarshal(mlpBytes, &mlpStruct)
-	if err != nil {
-		return errors.New("error occurred while unmarshaling MLP struct")
+		return errors.New("An error occurred while doing authenticated decryption on the MLP.")
 	}
 
-	var secureFileUUID userlib.UUID
+	var mlp MiddleLayerPointer
+
+	err = json.Unmarshal(marshalizedMLP, &mlp)
+	if err != nil {
+		return errors.New("An error occurred while unmarshalizing the MLP.")
+	}
+
+	var fileUUID userlib.UUID
 	var encKey []byte
 	var macKey []byte
-	// BEHAVIOR BRANCHES HERE: OWNER WILL DIRECTLY GET FILE STRUCT UUID, BUT RECIPIENTS WILL GET FAMILY POINTER
-	if mlpStruct.IsOwner {
-		// owner case
-		secureFileUUID = mlpStruct.FileStructPointer
+	if mlp.IsOwner { // case 1: file owner
+		fileUUID = mlp.FileStructPointer
 
 		keyUUIDBytes := userlib.Hash([]byte(filename))
 		keyUUIDBytes = append(keyUUIDBytes, userlib.Hash([]byte(userdata.Username))...)
@@ -656,473 +638,453 @@ func (userdata *User) AppendToFile(filename string, content []byte) error {
 		keyUUIDBytes = userlib.Hash(keyUUIDBytes)[:16]
 		keyUUID, err := uuid.FromBytes(keyUUIDBytes)
 		if err != nil {
-			return errors.New("error occurred while generating UUID for keys")
+			return errors.New("An error occurred while generating a key UUID.")
 		}
 
-		// use keyUUID to get the marshaled key struct from datastore
-		keyBytes, ok := userlib.DatastoreGet(keyUUID)
+		marshalizedAuthenticatedKeys, ok := userlib.DatastoreGet(keyUUID)
 		if !ok {
-			return errors.New("error occurred while getting encrypted keys from datastore")
+			return errors.New("Key doesn't exist.")
 		}
 
-		// return errors.New(string(keyBytes)) // marshalized encrypted key struct
+		var authenticatedKeys AuthenticatedEncryption
 
-		// unmarshal the encrypted key struct
-		var autEncKeyStruct AuthenticatedEncryption
-		err = json.Unmarshal(keyBytes, &autEncKeyStruct)
+		err = json.Unmarshal(marshalizedAuthenticatedKeys, &authenticatedKeys)
 		if err != nil {
-			return errors.New("error occurred while unmarshaling the key authenticatedencryption struct")
+			return errors.New("An error occurred while unmarshalizing the authenticated keys.")
 		}
 
 		encMessage := "encrypting keys of " + filename
 		macMessage := "tagging keys of " + filename
 
-		concatenatedKeys, err := userdata.AuthenticatedDecryption(autEncKeyStruct, encMessage, macMessage)
+		concatenatedKeys, err := userdata.AuthenticatedDecryption(authenticatedKeys, encMessage, macMessage)
 		if err != nil {
-			return err // ors.New("error occured while decrypting the keys")
+			return errors.New("An error occured while doing authenticated decryption on the keys.")
 		}
 		encKey = concatenatedKeys[:16]
 		macKey = concatenatedKeys[16:32]
+	} else { // case 2: recipient
+		familyPointerUUID := mlp.FileStructPointer
 
-	} else {
-		// recipient case
-		// get the family pointer
-		// set secureFile UUID from family pointer
-		secureFamilyPointerUUID := mlpStruct.FileStructPointer
-		marshaledSecureFamilyPointer, ok := userlib.DatastoreGet(secureFamilyPointerUUID)
+		marshalizedAuthenticatedFamilyPointer, ok := userlib.DatastoreGet(familyPointerUUID)
 		if !ok {
-			return errors.New("error occurred while getting secure family pointer from datastore 2")
+			return errors.New("Family pointer doesn't exist.")
 		}
 
-		// unmarshal AE
-		var aeFamPointer AuthenticatedEncryption
-		err = json.Unmarshal(marshaledSecureFamilyPointer, &aeFamPointer)
+		var authenticatedFamilyPointer AuthenticatedEncryption
+
+		err = json.Unmarshal(marshalizedAuthenticatedFamilyPointer, &authenticatedFamilyPointer)
 		if err != nil {
-			return errors.New("error occurred while marshaling family pointer")
+			return errors.New("An error occurred while unmarshalizing the authenticated family pointer.")
 		}
 
-		// derive the keys for family pointer decryption
-		famPointerEncKey := userlib.Hash([]byte(string(secureFamilyPointerUUID[:]) + "enc"))[:16]
-		famPointerMACKey := userlib.Hash([]byte(string(secureFamilyPointerUUID[:]) + "mac"))[:16]
+		familyPointerEncKey := userlib.Hash([]byte(string(familyPointerUUID[:]) + "enc"))[:16]
+		familyPointerMACKey := userlib.Hash([]byte(string(familyPointerUUID[:]) + "mac"))[:16]
 
-		// verify
-		newMAC, err := userlib.HMACEval(famPointerMACKey, aeFamPointer.Ciphertext)
+		// verify and decrypt
+		familyPointerMACTag, err := userlib.HMACEval(familyPointerMACKey, authenticatedFamilyPointer.Ciphertext)
 		if err != nil {
-			return errors.New("error occurred while getting new MAC of ciphertext")
+			return errors.New("An error occurred while generating a MAC tag for the authenticated family pointer.")
 		}
-		if !userlib.HMACEqual(newMAC, aeFamPointer.MACtag) {
-			return errors.New("error occurred while verifying the family pointer struct 2")
+		if !userlib.HMACEqual(familyPointerMACTag, authenticatedFamilyPointer.MACtag) {
+			return errors.New("Cannot verify the MAC tag of the authenticated family pointer.")
 		}
 
-		// decrypt
-		plaintext := userlib.SymDec(famPointerEncKey, aeFamPointer.Ciphertext)
+		marshalizedFamilyPointer := userlib.SymDec(familyPointerEncKey, authenticatedFamilyPointer.Ciphertext)
+
 		var familyPointer FamilyPointer
-		err = json.Unmarshal(plaintext, &familyPointer)
+
+		err = json.Unmarshal(marshalizedFamilyPointer, &familyPointer)
 		if err != nil {
-			return errors.New("error occured while umarshalizing the family pointer")
+			return errors.New("An error occured while umarshalizing the family pointer.")
 		}
-		secureFileUUID = familyPointer.FileStructPointer
+
+		fileUUID = familyPointer.FileStructPointer
 		encKey = familyPointer.EncKey
 		macKey = familyPointer.MACKey
 	}
 
-	secureFileBytes, ok := userlib.DatastoreGet(secureFileUUID)
+	marshalizedAuthenticatedFile, ok := userlib.DatastoreGet(fileUUID)
 
-	var autEncFileStruct AuthenticatedEncryption
-	err = json.Unmarshal(secureFileBytes, &autEncFileStruct)
+	var authenticatedFile AuthenticatedEncryption
+	err = json.Unmarshal(marshalizedAuthenticatedFile, &authenticatedFile)
 	if err != nil {
-		return errors.New("error occurred while unmarshaling file's authenticated encryption struct 1")
+		return errors.New("An error occurred while unmarshalizing the authenticated file.")
 	}
 
-	// verify the file struct
-	fileStructMACTag, err := userlib.HMACEval(macKey, autEncFileStruct.Ciphertext)
+	// verify and decrypt
+	fileMACTag, err := userlib.HMACEval(macKey, authenticatedFile.Ciphertext)
 	if err != nil {
-		return errors.New("error occurred while calculating tag of encrypted file struct")
+		return errors.New("An error occurred while generating a MAC tag for the authenticated file.")
+	}
+	if !userlib.HMACEqual(fileMACTag, authenticatedFile.MACtag) {
+		return errors.New("Cannot verify the MAC tag of the file.")
 	}
 
-	if !(userlib.HMACEqual(fileStructMACTag, autEncFileStruct.MACtag)) {
-		return errors.New("error occured while verifying the file struct")
-	}
+	marshalizedFile := userlib.SymDec(encKey, authenticatedFile.Ciphertext)
 
-	// decrypt the file struct
-	marshaledFileStruct := userlib.SymDec(encKey, autEncFileStruct.Ciphertext)
-
-	// unmarshal the file struct's bytes
-	var fileStruct File
-	err = json.Unmarshal(marshaledFileStruct, &fileStruct)
+	var file File
+	err = json.Unmarshal(marshalizedFile, &file)
 	if err != nil {
-		return errors.New("error occured while unmarshalizing the file struct 1")
+		return errors.New("An error occured while unmarshalizing the file.")
 	}
 
-	// AT THIS POINT, we have the file struct!!!
-
-	// encrypt-and-MAC the new content
-	// create UUIDs to use for encryption
+	// encrypt and mac the appending content
 	filePointerUUID := uuid.New()
 	fileContentUUID := uuid.New()
 
 	contentEncKey := userlib.Hash([]byte(string(filePointerUUID[:]) + "enc"))[:16]
 	contentMACKey := userlib.Hash([]byte(string(filePointerUUID[:]) + "mac"))[:16]
 
-	var encryptedContent AuthenticatedEncryption
-	encryptedContent.Ciphertext = userlib.SymEnc(contentEncKey, userlib.RandomBytes(16), content)
-	encryptedContent.MACtag, err = userlib.HMACEval(contentMACKey, encryptedContent.Ciphertext)
+	var authenticatedContent AuthenticatedEncryption
+	authenticatedContent.Ciphertext = userlib.SymEnc(contentEncKey, userlib.RandomBytes(16), content)
+	authenticatedContent.MACtag, err = userlib.HMACEval(contentMACKey, authenticatedContent.Ciphertext)
 	if err != nil {
-		return errors.New("error occurred while creating MAC for contents")
+		return errors.New("An error occured while generating a MAC tag for the authenticated content.")
 	}
 
-	marshalizedContent, err := json.Marshal(encryptedContent)
-	userlib.DatastoreSet(fileContentUUID, marshalizedContent)
+	marshalizedAuthenticatedContent, err := json.Marshal(authenticatedContent)
+	if err != nil {
+		return errors.New("An error occured while marshalizing the authenticated content.")
+	}
 
-	/* create a file pointer struct */
+	userlib.DatastoreSet(fileContentUUID, marshalizedAuthenticatedContent)
+
+	// create file pointer
 	var filePointer FilePointer
+
 	filePointer.Content = fileContentUUID
-	filePointer.Index = fileStruct.Count
+	filePointer.Index = file.Count
 
-	// marshal file pointer
-	filePointerBytes, err := json.Marshal(filePointer)
+	marshalizedFilePointer, err := json.Marshal(filePointer)
 	if err != nil {
-		return errors.New("error occurred while marshaling new file pointer")
+		return errors.New("An error occurred while marshalizing the file pointer.")
 	}
 
-	// encrypt the file pointer with keys generated from file struct UUID and file pointer
-	filePointerEncKey := userlib.Hash([]byte(string(secureFileUUID[:]) + "enc" + strconv.Itoa(fileStruct.Count)))[:16]
-	filePointerMACKey := userlib.Hash([]byte(string(secureFileUUID[:]) + "mac" + strconv.Itoa(fileStruct.Count)))[:16]
+	// encrypt and mac
+	filePointerEncKey := userlib.Hash([]byte(string(fileUUID[:]) + "enc" + strconv.Itoa(file.Count)))[:16]
+	filePointerMACKey := userlib.Hash([]byte(string(fileUUID[:]) + "mac" + strconv.Itoa(file.Count)))[:16]
 
-	var aeFilePointer AuthenticatedEncryption
-	aeFilePointer.Ciphertext = userlib.SymEnc(filePointerEncKey, userlib.RandomBytes(16), filePointerBytes)
-	aeFilePointer.MACtag, err = userlib.HMACEval(filePointerMACKey, aeFilePointer.Ciphertext)
+	var authenticatedFilePointer AuthenticatedEncryption
+	authenticatedFilePointer.Ciphertext = userlib.SymEnc(filePointerEncKey, userlib.RandomBytes(16), marshalizedFilePointer)
+	authenticatedFilePointer.MACtag, err = userlib.HMACEval(filePointerMACKey, authenticatedFilePointer.Ciphertext)
 	if err != nil {
-		return errors.New("error occured while generating a MAC tag for ae file pointer")
+		return errors.New("An error occured while generating a MAC tag for the authenticated file pointer.")
 	}
 
-	// marshal the AE of file pointer
-	aeFilePointerBytes, err := json.Marshal(aeFilePointer)
+	marshalizedAuthenticatedPointer, err := json.Marshal(authenticatedFilePointer)
 	if err != nil {
-		return errors.New("error occurred while marshaling")
+		return errors.New("An error occured while marshalizing the authenticated file pointer.")
 	}
-	/* store file pointer struct in datastore */
-	userlib.DatastoreSet(filePointerUUID, aeFilePointerBytes)
 
-	// update the current last pointer's next, first get AE
-	aeOldLastPointerBytes, ok := userlib.DatastoreGet(fileStruct.FileContentsLast)
+	userlib.DatastoreSet(filePointerUUID, marshalizedAuthenticatedPointer)
+
+	// update the current last file pointer
+	marshalizedAuthenticatedCurrentLastFilePointer, ok := userlib.DatastoreGet(file.FileContentsLast)
 	if !ok {
-		return errors.New("error occurred while retrieving current last pointer from datastore")
+		return errors.New("Last file pointer doesn't exist.")
 	}
 
-	var aeOldLastPointer AuthenticatedEncryption
-	err = json.Unmarshal(aeOldLastPointerBytes, &aeOldLastPointer)
+	var authenticatedCurrentLastFilePointer AuthenticatedEncryption
+
+	err = json.Unmarshal(marshalizedAuthenticatedCurrentLastFilePointer, &authenticatedCurrentLastFilePointer)
 	if err != nil {
-		return errors.New("error occured while unmarshalizing the old ae last pointer")
+		return errors.New("An error occured while unmarshalizing the authenticated current last file pointer.")
 	}
 
-	// decrypt AE of old last filepointer
-	oldLastFilePointerEncKey := userlib.Hash([]byte(string(secureFileUUID[:]) + "enc" + strconv.Itoa(fileStruct.Count-1)))[:16]
-	oldLastFilePointerMACKey := userlib.Hash([]byte(string(secureFileUUID[:]) + "mac" + strconv.Itoa(fileStruct.Count-1)))[:16]
+	// verify and decrypt
+	currentLastPointerEncKey := userlib.Hash([]byte(string(fileUUID[:]) + "enc" + strconv.Itoa(file.Count-1)))[:16]
+	currentLastPointerMACKey := userlib.Hash([]byte(string(fileUUID[:]) + "mac" + strconv.Itoa(file.Count-1)))[:16]
 
-	// verify
-	newMAC, err := userlib.HMACEval(oldLastFilePointerMACKey, aeOldLastPointer.Ciphertext)
+	currentLastPointerMACTag, err := userlib.HMACEval(currentLastPointerMACKey, authenticatedCurrentLastFilePointer.Ciphertext)
 	if err != nil {
-		return errors.New("error occured while creating mac tag of aeoldlastpointer")
+		return errors.New("An error occured while generating a MAC tag for the authenticated current last file pointer.")
 	}
-	if !userlib.HMACEqual(newMAC, aeOldLastPointer.MACtag) {
-		return errors.New("error occured while verifying the mac tag of aeoldlastpointer")
+	if !userlib.HMACEqual(currentLastPointerMACTag, authenticatedCurrentLastFilePointer.MACtag) {
+		return errors.New("Cannot verify the MAC tag of the authenticated current last file pointer.")
 	}
-	oldLastPointerBytes := userlib.SymDec(oldLastFilePointerEncKey, aeOldLastPointer.Ciphertext)
 
-	var oldLastPointer FilePointer
-	err = json.Unmarshal(oldLastPointerBytes, &oldLastPointer)
+	marshalizedCurrentLastPointer := userlib.SymDec(currentLastPointerEncKey, authenticatedCurrentLastFilePointer.Ciphertext)
+
+	var currentLastPointer FilePointer
+
+	err = json.Unmarshal(marshalizedCurrentLastPointer, &currentLastPointer)
 	if err != nil {
-		return errors.New("error occurred while unmarshaling the file struct's old last pointer")
+		return errors.New("An error occurred while unmarshalizing the current last file pointer.")
 	}
 
-	// THE CHANGE
-	oldLastPointer.NextFile = filePointerUUID
+	// update the current last file pointer
+	currentLastPointer.NextFile = filePointerUUID
 
-	// re-marshal old last pointer
-	oldLastPointerBytes, err = json.Marshal(oldLastPointer)
+	marshalizedCurrentLastPointer, err = json.Marshal(currentLastPointer)
 	if err != nil {
-		return errors.New("error occurred while marshaling file struct's old last pointer")
+		return errors.New("An error occurred while marshalizing the current last file pointer.")
 	}
 
-	// begin re-encryption
-	aeOldLastPointer.Ciphertext = userlib.SymEnc(oldLastFilePointerEncKey, userlib.RandomBytes(16), oldLastPointerBytes)
-	aeOldLastPointer.MACtag, err = userlib.HMACEval(oldLastFilePointerMACKey, aeOldLastPointer.Ciphertext)
+	// encrypt and mac
+	authenticatedCurrentLastFilePointer.Ciphertext = userlib.SymEnc(currentLastPointerEncKey, userlib.RandomBytes(16), marshalizedCurrentLastPointer)
+	authenticatedCurrentLastFilePointer.MACtag, err = userlib.HMACEval(currentLastPointerMACKey, authenticatedCurrentLastFilePointer.Ciphertext)
 	if err != nil {
-		return errors.New("error occurred while creating MAC for old last pointer")
+		return errors.New("An error occurred while generating a MAC tag for the current last file pointer.")
 	}
 
-	// marshal and store the pointer back (to update changes)
-	aeOldLastPointerBytes, err = json.Marshal(aeOldLastPointer)
+	marshalizedAuthenticatedCurrentLastFilePointer, err = json.Marshal(authenticatedCurrentLastFilePointer)
 	if err != nil {
-		return errors.New("error occurred while remarshaling the file's previous last pointer")
+		return errors.New("An error occurred while marshalizing the authenticated current last file pointer.")
 	}
-	userlib.DatastoreSet(fileStruct.FileContentsLast, aeOldLastPointerBytes)
 
-	// increment file struct block count
-	fileStruct.Count += 1
+	userlib.DatastoreSet(file.FileContentsLast, marshalizedAuthenticatedCurrentLastFilePointer)
 
-	// update the file struct's last
-	fileStruct.FileContentsLast = filePointerUUID
+	// update file
+	file.Count += 1
+	file.FileContentsLast = filePointerUUID
 
-	// marshal encrypt whatever to file struct
-	fileStructBytes, err := json.Marshal(fileStruct)
+	// encrypt and mac
+	marshalizedFile, err = json.Marshal(file)
 	if err != nil {
-		return errors.New("error occurred while marshalizing the file struct")
+		return errors.New("An error occurred while marshalizing the file.")
 	}
 
-	var encryptNewFileStruct AuthenticatedEncryption
-	encryptNewFileStruct.Ciphertext = userlib.SymEnc(encKey, userlib.RandomBytes(16), fileStructBytes)
-	encryptNewFileStruct.MACtag, err = userlib.HMACEval(macKey, encryptNewFileStruct.Ciphertext)
+	authenticatedFile.Ciphertext = userlib.SymEnc(encKey, userlib.RandomBytes(16), marshalizedFile)
+	authenticatedFile.MACtag, err = userlib.HMACEval(macKey, authenticatedFile.Ciphertext)
 	if err != nil {
-		return errors.New("error occurred while generating a MAC tag")
+		return errors.New("An error occurred while generating a MAC tag for the authenticated file.")
 	}
 
-	encryptNewFileStructBytes, err := json.Marshal(encryptNewFileStruct)
+	marshalizedAuthenticatedFile, err = json.Marshal(authenticatedFile)
 	if err != nil {
-		return errors.New("error occurred while marshalizing the new file struct")
+		return errors.New("An error occurred while marshalizing the authenticated file.")
 	}
 
-	userlib.DatastoreSet(secureFileUUID, encryptNewFileStructBytes)
+	userlib.DatastoreSet(fileUUID, marshalizedAuthenticatedFile)
 
 	return nil
 }
 
+/** Downloads and returns the content of the corresponding file. */
 func (userdata *User) LoadFile(filename string) (content []byte, err error) {
-	// access middle layer pointer
-
+	// get middle layer pointer
 	mlpUUIDBytes := userlib.Hash([]byte(filename))
 	mlpUUIDBytes = append(mlpUUIDBytes, userlib.Hash([]byte(userdata.Username))...)
 	mlpUUIDBytes = userlib.Hash(mlpUUIDBytes)[:16]
 	mlpUUID, err := uuid.FromBytes(mlpUUIDBytes)
 	if err != nil {
-		return nil, errors.New("file does not exist in user's personal namespace")
+		return nil, errors.New("An error occurred while generating a MLP UUID.")
 	}
 
-	// get the AE of MLP from datastore
-	aeMLPBytes, ok := userlib.DatastoreGet(mlpUUID)
+	marshalizedAuthenticatedMLP, ok := userlib.DatastoreGet(mlpUUID)
 	if !ok {
-		return nil, errors.New("error occurred while retrieving marshaled MLP bytes 1")
+		return nil, errors.New("MLP doesn't exist.")
 	}
 
-	// unmarshal the MLP to find the file struct UUID
-	var aeMLP AuthenticatedEncryption
-	err = json.Unmarshal(aeMLPBytes, &aeMLP)
+	var authenticatedMLP AuthenticatedEncryption
+
+	err = json.Unmarshal(marshalizedAuthenticatedMLP, &authenticatedMLP)
 	if err != nil {
-		return nil, errors.New("error occurred while unmarshaling ae MLP")
+		return nil, errors.New("An error occurred while unmarshalizing the authenticated MLP.")
 	}
 
-	// verify and decrypt the damn MLP
+	// verify and decrypt
 	encMessage := "encrypting MLP of " + filename
 	macMessage := "tagging MLP of " + filename
-	mlpBytes, err := userdata.AuthenticatedDecryption(aeMLP, encMessage, macMessage)
+	marshalizedMLP, err := userdata.AuthenticatedDecryption(authenticatedMLP, encMessage, macMessage)
 	if err != nil {
-		return nil, errors.New("error occurred while verify-and-decrypting AE of MLP 2")
+		return nil, errors.New("An error occurred while doing authenticated decryption on the MLP.")
 	}
 
-	// initialize MLP struct
-	var mlpStruct MiddleLayerPointer
-	err = json.Unmarshal(mlpBytes, &mlpStruct)
+	var mlp MiddleLayerPointer
+
+	err = json.Unmarshal(marshalizedMLP, &mlp)
 	if err != nil {
-		return nil, errors.New("error occurred while unmarshaling MLP struct")
+		return nil, errors.New("An error occurred while unmarshalizing the MLP.")
 	}
 
-	// BEHAVIOR BRANCHES HERE: OWNER WILL DIRECTLY GET FILE STRUCT UUID, BUT RECIPIENTS WILL GET FAMILY POINTER
-	var secureFileUUID userlib.UUID
+	var fileUUID userlib.UUID
 	var encKey []byte
 	var macKey []byte
-	if mlpStruct.IsOwner {
-		// owner case
-		secureFileUUID = mlpStruct.FileStructPointer
-		/* /////// KEY STUFF ////////// */
+
+	if mlp.IsOwner { // case 1: file owner
+		fileUUID = mlp.FileStructPointer
+
 		keyUUIDBytes := userlib.Hash([]byte(filename))
 		keyUUIDBytes = append(keyUUIDBytes, userlib.Hash([]byte(userdata.Username))...)
 		keyUUIDBytes = append(keyUUIDBytes, userlib.Hash([]byte("keys"))...)
 		keyUUIDBytes = userlib.Hash(keyUUIDBytes)[:16]
 		keyUUID, err := uuid.FromBytes(keyUUIDBytes)
 		if err != nil {
-			return nil, errors.New("error occurred while generating UUID for keys")
+			return nil, errors.New("An error occurred while generating a key UUID.")
 		}
 
-		// use keyUUID to get the marshaled key struct from datastore
-		keyBytes, ok := userlib.DatastoreGet(keyUUID)
+		marshalizedAuthenticatedKeys, ok := userlib.DatastoreGet(keyUUID)
 		if !ok {
-			return nil, errors.New("error occurred while getting encrypted keys from datastore")
+			return nil, errors.New("Key doesn't exist.")
 		}
 
-		// unmarshal the encrypted key struct
-		var autEncKeyStruct AuthenticatedEncryption
-		err = json.Unmarshal(keyBytes, &autEncKeyStruct)
+		var authenticatedKeys AuthenticatedEncryption
+		err = json.Unmarshal(marshalizedAuthenticatedKeys, &authenticatedKeys)
 		if err != nil {
-			return nil, errors.New("error occurred while unmarshaling the key authenticatedencryption struct")
+			return nil, errors.New("An error occurred while unmarshalizing the authenticated keys.")
 		}
 
-		// regenerate keys to verify and decrypt the keys for the file struct
+		// generate keys
 		encKeyKey, err := userlib.HashKDF(userdata.SourceKey, []byte("encrypting keys of "+filename))
 		if err != nil {
-			return nil, errors.New("error occurred while generating an encryption key for keys")
+			return nil, errors.New("An error occurred while generating an encryption key for the keys.")
 		}
 		encKeyKey = userlib.Hash(encKeyKey)[:16]
 		macKeyKey, err := userlib.HashKDF(userdata.SourceKey, []byte("tagging keys of "+filename))
 		if err != nil {
-			return nil, errors.New("error occurred while generating a MAC key for keys")
+			return nil, errors.New("An error occurred while generating a MAC key for the keys.")
 		}
 		macKeyKey = userlib.Hash(macKeyKey)[:16]
 
-		// verify the secure key struct
-		keyMACTag, err := userlib.HMACEval(macKeyKey, autEncKeyStruct.Ciphertext)
+		// verify and decrypt
+		keyMACTag, err := userlib.HMACEval(macKeyKey, authenticatedKeys.Ciphertext)
 		if err != nil {
-			return nil, errors.New("error occurred while generating a MAC tag")
+			return nil, errors.New("An error occurred while generating a MAC tag for the authenticated keys.")
 		}
 
-		if !(userlib.HMACEqual(keyMACTag, autEncKeyStruct.MACtag)) {
-			return nil, errors.New("error occurred while verifying keys 1")
+		if !userlib.HMACEqual(keyMACTag, authenticatedKeys.MACtag) {
+			return nil, errors.New("Cannot verify the MAC tag of the keys.")
 		}
 
-		// decrypt to get the two keys concatenated together; slice them
-		concatenatedKeys := userlib.SymDec(encKeyKey, autEncKeyStruct.Ciphertext)
+		concatenatedKeys := userlib.SymDec(encKeyKey, authenticatedKeys.Ciphertext)
 		encKey = concatenatedKeys[:16]
 		macKey = concatenatedKeys[16:32]
-	} else {
-		// recipient case
-		// get the family pointer
-		// set secureFile UUID from family pointer
-		secureFamilyPointerUUID := mlpStruct.FileStructPointer
-		marshaledSecureFamilyPointer, ok := userlib.DatastoreGet(secureFamilyPointerUUID)
+	} else { // case 2: recipient
+		familyPointerUUID := mlp.FileStructPointer
+		marshalizedAuthenticatedFamilyPointer, ok := userlib.DatastoreGet(familyPointerUUID)
 		if !ok {
-			return nil, errors.New("error occurred while getting secure family pointer from datastore 3")
+			return nil, errors.New("Family pointer doesn't exist.")
 		}
 
-		// unmarshal AE
-		var aeFamPointer AuthenticatedEncryption
-		err = json.Unmarshal(marshaledSecureFamilyPointer, &aeFamPointer)
+		var authenticatedFamilyPointer AuthenticatedEncryption
+		err = json.Unmarshal(marshalizedAuthenticatedFamilyPointer, &authenticatedFamilyPointer)
 		if err != nil {
-			return nil, errors.New("error occurred while marshaling family pointer")
+			return nil, errors.New("An error occurred while unmarshalizing the authenticated family pointer.")
 		}
 
-		// derive the keys for family pointer
-		famPointerEncKey := userlib.Hash([]byte(string(secureFamilyPointerUUID[:]) + "enc"))[:16]
-		famPointerMACKey := userlib.Hash([]byte(string(secureFamilyPointerUUID[:]) + "mac"))[:16]
+		// derive keys
+		familyPointerEncKey := userlib.Hash([]byte(string(familyPointerUUID[:]) + "enc"))[:16]
+		familyPointerMACKey := userlib.Hash([]byte(string(familyPointerUUID[:]) + "mac"))[:16]
 
-		// verify
-		newMAC, err := userlib.HMACEval(famPointerMACKey, aeFamPointer.Ciphertext)
+		// verify and decrypt
+		familyPointerMACTag, err := userlib.HMACEval(familyPointerMACKey, authenticatedFamilyPointer.Ciphertext)
 		if err != nil {
-			return nil, errors.New("error occurred while getting new MAC of ciphertext")
+			return nil, errors.New("An error occurred while generating a MAC tag for the authenticated family pointer.")
 		}
-		if !userlib.HMACEqual(newMAC, aeFamPointer.MACtag) {
-			return nil, errors.New("error occurred while verifying the family pointer struct 3")
+		if !userlib.HMACEqual(familyPointerMACTag, authenticatedFamilyPointer.MACtag) {
+			return nil, errors.New("Cannot verify the MAC tag of the authenticated family pointer.")
 		}
 
-		// decrypt
-		plaintext := userlib.SymDec(famPointerEncKey, aeFamPointer.Ciphertext)
+		marshalizedFamilyPointer := userlib.SymDec(familyPointerEncKey, authenticatedFamilyPointer.Ciphertext)
+
 		var familyPointer FamilyPointer
-		err = json.Unmarshal(plaintext, &familyPointer)
+
+		err = json.Unmarshal(marshalizedFamilyPointer, &familyPointer)
 		if err != nil {
-			return nil, errors.New("error occured while umarshalizing the family pointer")
+			return nil, errors.New("An error occured while umarshalizing the family pointer.")
 		}
-		secureFileUUID = familyPointer.FileStructPointer
+
+		fileUUID = familyPointer.FileStructPointer
 		encKey = familyPointer.EncKey
 		macKey = familyPointer.MACKey
 	}
-	// after this we have file struct UUID=secureFileUUID
-	// we have keys for file struct which are encKey and macKey
 	// get file struct UUID from the MLP
-	// secureFileUUID := mlpStruct.FileStructPointer
-	secureFileBytes, ok := userlib.DatastoreGet(secureFileUUID)
+	marshalizedAuthenticatedFile, ok := userlib.DatastoreGet(fileUUID)
 
-	var autEncFileStruct AuthenticatedEncryption
-	err = json.Unmarshal(secureFileBytes, &autEncFileStruct)
+	var authenticatedFile AuthenticatedEncryption
+	err = json.Unmarshal(marshalizedAuthenticatedFile, &authenticatedFile)
 	if err != nil {
-		return nil, errors.New("error occurred while unmarshaling file's authenticated encryption struct 2")
+		return nil, errors.New("An error occurred while unmarshalizing the authenticated file.")
 	}
 
-	// verify the file struct
-	fileStructMACTag, err := userlib.HMACEval(macKey, autEncFileStruct.Ciphertext)
+	// verify and decrypt
+	fileMACTag, err := userlib.HMACEval(macKey, authenticatedFile.Ciphertext)
 	if err != nil {
-		return nil, errors.New("error occurred while calculating tag of encrypted file struct")
+		return nil, errors.New("An error occurred while generating a MAC tag of the authenticated file.")
+	}
+	if !userlib.HMACEqual(fileMACTag, authenticatedFile.MACtag) {
+		return nil, errors.New("Cannot verify the MAC tag of the authenticated file.")
 	}
 
-	if !(userlib.HMACEqual(fileStructMACTag, autEncFileStruct.MACtag)) {
-		return nil, errors.New("error occured while verifying the file struct")
-	}
+	marshalizedFile := userlib.SymDec(encKey, authenticatedFile.Ciphertext)
 
-	// decrypt the file struct
-	marshaledFileStruct := userlib.SymDec(encKey, autEncFileStruct.Ciphertext)
+	var file File
 
-	// unmarshal the file struct's bytes
-	var fileStruct File
-	err = json.Unmarshal(marshaledFileStruct, &fileStruct)
+	err = json.Unmarshal(marshalizedFile, &file)
 	if err != nil {
-		return nil, errors.New("error occured while unmarshalizing the file struct 2")
+		return nil, errors.New("An error occured while unmarshalizing the file.")
 	}
 
-	// AT THIS POINT, we have the file struct!!!
-	lastFilePointer := fileStruct.FileContentsLast
-	currentFilePointer := fileStruct.FileContentsFirst
+	// get the file pointers from the file
+	lastFilePointer := file.FileContentsLast
+	currentFilePointer := file.FileContentsFirst
 	count := 0
 	exit := false
 	for !exit {
-
-		marshaledAEFilePointer, ok := userlib.DatastoreGet(currentFilePointer)
+		marshalizedAuthenticatedFilePointer, ok := userlib.DatastoreGet(currentFilePointer)
 		if !ok {
-			return nil, errors.New("error occurred while retrieving AE of file pointer number " + strconv.Itoa(count))
+			return nil, errors.New("File " + strconv.Itoa(count) + " doesn't exist.")
 		}
 
-		var aeFilePointer AuthenticatedEncryption
-		err = json.Unmarshal(marshaledAEFilePointer, &aeFilePointer)
+		var authenticatedFilePointer AuthenticatedEncryption
+
+		err = json.Unmarshal(marshalizedAuthenticatedFilePointer, &authenticatedFilePointer)
 		if err != nil {
-			return nil, errors.New("error occurred while unmarshaling AE of file pointer number " + strconv.Itoa(count))
+			return nil, errors.New("An error occurred while unmarshalizing the authenticated file pointer " + strconv.Itoa(count) + ".")
 		}
 
-		filePointerEncKey := userlib.Hash([]byte(string(secureFileUUID[:]) + "enc" + strconv.Itoa(count)))[:16]
-		filePointerMACKey := userlib.Hash([]byte(string(secureFileUUID[:]) + "mac" + strconv.Itoa(count)))[:16]
+		filePointerEncKey := userlib.Hash([]byte(string(fileUUID[:]) + "enc" + strconv.Itoa(count)))[:16]
+		filePointerMACKey := userlib.Hash([]byte(string(fileUUID[:]) + "mac" + strconv.Itoa(count)))[:16]
 
-		newMAC, err := userlib.HMACEval(filePointerMACKey, aeFilePointer.Ciphertext)
+		filePointerMACTag, err := userlib.HMACEval(filePointerMACKey, authenticatedFilePointer.Ciphertext)
 		if err != nil {
-			return nil, errors.New("error occured while creating mac tag of file pointer number " + strconv.Itoa(count))
+			return nil, errors.New("An error occured while generating a MAC tag of the authenticated file pointer  " + strconv.Itoa(count) + ".")
 		}
 
-		// verify
-		if !userlib.HMACEqual(newMAC, aeFilePointer.MACtag) {
-			return nil, errors.New("error occurred while verifying MAC of file pointer " + strconv.Itoa(count))
+		// verify and decrypt
+		if !userlib.HMACEqual(filePointerMACTag, authenticatedFilePointer.MACtag) {
+			return nil, errors.New("Cannot verify the MAC tag of the authenticated file pointer " + strconv.Itoa(count) + ".")
 		}
 
-		// decrypt
-		marshaledFilePointer := userlib.SymDec(filePointerEncKey, aeFilePointer.Ciphertext)
+		marshalizedFilePointer := userlib.SymDec(filePointerEncKey, authenticatedFilePointer.Ciphertext)
 
-		// unmarshal the file pointer struct to retrieve the content UUID attribute
 		var filePointer FilePointer
-		err = json.Unmarshal(marshaledFilePointer, &filePointer)
-		if err != nil {
-			return nil, errors.New("error occured while unmarshalizing the file pointer " + strconv.Itoa(count))
-		}
 
-		// get content keys
+		err = json.Unmarshal(marshalizedFilePointer, &filePointer)
+		if err != nil {
+			return nil, errors.New("An error occured while unmarshalizing the file pointer " + strconv.Itoa(count) + ".")
+		}
 
 		// get the content pointer
-		marshaledSecureContents, ok := userlib.DatastoreGet(filePointer.Content)
-		// unmarshal the authenticated encryption of the contents struct
-		var aeContent AuthenticatedEncryption
-		err = json.Unmarshal(marshaledSecureContents, &aeContent)
+		marshalizedAuthenticatedContent, ok := userlib.DatastoreGet(filePointer.Content)
+		if !ok {
+			return nil, errors.New("File content " + strconv.Itoa(count) + " doesn't exist.")
+		}
+
+		var authenticatedContent AuthenticatedEncryption
+
+		err = json.Unmarshal(marshalizedAuthenticatedContent, &authenticatedContent)
 		if err != nil {
-			return nil, errors.New("error occurred while unmarshalizing the file content " + strconv.Itoa(count))
+			return nil, errors.New("An error occurred while unmarshalizing the authenticated file content " + strconv.Itoa(count) + ".")
 		}
 
 		contentEncKey := userlib.Hash([]byte(string(currentFilePointer[:]) + "enc"))[:16]
 		contentMACKey := userlib.Hash([]byte(string(currentFilePointer[:]) + "mac"))[:16]
 
-		newMAC, err = userlib.HMACEval(contentMACKey, aeContent.Ciphertext)
+		// verify and decrypt
+		contentMACTag, err := userlib.HMACEval(contentMACKey, authenticatedContent.Ciphertext)
 		if err != nil {
-			return nil, errors.New("error occurred while getting the MAC of file content " + strconv.Itoa(count))
-		}
-		// verify
-		if !userlib.HMACEqual(newMAC, aeContent.MACtag) {
-			return nil, errors.New("error occured while verifying the MAC of file content " + strconv.Itoa(count))
+			return nil, errors.New("An error occurred while generating a MAC tag of the authenticated content " + strconv.Itoa(count) + ".")
 		}
 
-		returnedContentBytes := userlib.SymDec(contentEncKey, aeContent.Ciphertext)
+		if !userlib.HMACEqual(contentMACTag, authenticatedContent.MACtag) {
+			return nil, errors.New("Cannot verify the MAC tag of the authenticated content " + strconv.Itoa(count) + ".")
+		}
 
-		content = append(content, returnedContentBytes...)
+		decryptedContent := userlib.SymDec(contentEncKey, authenticatedContent.Ciphertext)
+
+		content = append(content, decryptedContent...)
 
 		if currentFilePointer == lastFilePointer {
 			exit = true
@@ -1135,478 +1097,444 @@ func (userdata *User) LoadFile(filename string) (content []byte, err error) {
 	return content, err
 }
 
+/** Creates a secure file share invitation. */
 func (userdata *User) CreateInvitation(filename string, recipientUsername string) (
 	invitationPtr uuid.UUID, err error) {
-	// get UUID for MLP
+	// get middle layer pointer
 	mlpUUIDBytes := userlib.Hash([]byte(filename))
 	mlpUUIDBytes = append(mlpUUIDBytes, userlib.Hash([]byte(userdata.Username))...)
 	mlpUUIDBytes = userlib.Hash(mlpUUIDBytes)[:16]
 	mlpUUID, err := uuid.FromBytes(mlpUUIDBytes)
 	if err != nil {
-		return uuid.Nil, errors.New("error occurred while generating UUID for marshaled MLP struct")
+		return uuid.Nil, errors.New("An error occurred while generating a MLP UUID")
 	}
 
-	// get MLP from datastore
-	aeMLPBytes, ok := userlib.DatastoreGet(mlpUUID)
+	marshalizedAuthenticatedMLP, ok := userlib.DatastoreGet(mlpUUID)
 	if !ok {
-		return uuid.Nil, errors.New("error occured while retrieving the MLP")
+		return uuid.Nil, errors.New("MLP doesn't exist.")
 	}
 
-	// unmarshal AE of MLP
-	var aeMLP AuthenticatedEncryption
-	err = json.Unmarshal(aeMLPBytes, &aeMLP)
+	// verify and decrypt
+	var authenticatedMLP AuthenticatedEncryption
+	err = json.Unmarshal(marshalizedAuthenticatedMLP, &authenticatedMLP)
 	if err != nil {
-		return uuid.Nil, errors.New("error occurred while unmarshaling AE of MLP")
+		return uuid.Nil, errors.New("An error occurred while unmarshalizing the authenticated MLP.")
 	}
 
 	encMessage := "encrypting MLP of " + filename
 	macMessage := "tagging MLP of " + filename
-	mlpBytes, err := userdata.AuthenticatedDecryption(aeMLP, encMessage, macMessage)
+	marshalizedMLP, err := userdata.AuthenticatedDecryption(authenticatedMLP, encMessage, macMessage)
 	if err != nil {
-		return uuid.Nil, errors.New("error occurred while decrypting aemlp in create invitation")
+		return uuid.Nil, errors.New("An error occurred while doing authenticated decryption on the MLP.")
 	}
 
-	var mlpStruct MiddleLayerPointer
-	err = json.Unmarshal(mlpBytes, &mlpStruct)
+	var mlp MiddleLayerPointer
+
+	err = json.Unmarshal(marshalizedMLP, &mlp)
 	if err != nil {
-		return uuid.Nil, errors.New("error occured while unmarshalizing the mlp struct")
+		return uuid.Nil, errors.New("An error occured while unmarshalizing the MLP.")
 	}
 
-	var famPointerUUID userlib.UUID
-	if mlpStruct.IsOwner {
-		// put family pointer uuid in invitation (encrypted with PKE)
-		// sign the encryption
-		// store invitation struct in DS, return UUID to it
+	var familyPointerUUID userlib.UUID
 
-		// get file struct's keys
+	if mlp.IsOwner { // case 1: file owner
 		keyUUIDBytes := userlib.Hash([]byte(filename))
 		keyUUIDBytes = append(keyUUIDBytes, userlib.Hash([]byte(userdata.Username))...)
 		keyUUIDBytes = append(keyUUIDBytes, userlib.Hash([]byte("keys"))...)
 		keyUUIDBytes = userlib.Hash(keyUUIDBytes)[:16]
 		keyUUID, err := uuid.FromBytes(keyUUIDBytes)
 		if err != nil {
-			return uuid.Nil, errors.New("error occurred while generating UUID for keys")
+			return uuid.Nil, errors.New("An error occurred while generating a key UUID.")
 		}
 
-		var encryptedKeys AuthenticatedEncryption
-		encryptedKeysBytes, ok := userlib.DatastoreGet(keyUUID)
+		var authenticatedKeys AuthenticatedEncryption
+
+		marshalizedAuthenticatedKeys, ok := userlib.DatastoreGet(keyUUID)
 		if !ok {
-			return uuid.Nil, errors.New("error occured while retrieving the key struct")
+			return uuid.Nil, errors.New("Key doesn't exist.")
 		}
 
-		err = json.Unmarshal(encryptedKeysBytes, &encryptedKeys)
+		err = json.Unmarshal(marshalizedAuthenticatedKeys, &authenticatedKeys)
 		if err != nil {
-			return uuid.Nil, errors.New("error occured while unmarshalizing the key struct")
+			return uuid.Nil, errors.New("An error occured while unmarshalizing the authenticated keys.")
 		}
 
 		encMessage = "encrypting keys of " + filename
 		macMessage = "tagging keys of " + filename
-		concatenatedKeys, err := userdata.AuthenticatedDecryption(encryptedKeys, encMessage, macMessage)
+		concatenatedKeys, err := userdata.AuthenticatedDecryption(authenticatedKeys, encMessage, macMessage)
 		if err != nil {
-			return uuid.Nil, errors.New("error occurred while verifying-and-decrypting AE of keys")
+			return uuid.Nil, errors.New("An error occurred while doing authenticated encryption on the keys.")
 		}
+
 		encKey := concatenatedKeys[:16]
 		macKey := concatenatedKeys[16:32]
 
 		// get file struct uuid from mlp
-		// get file struct pointer
-		fileStructPointer := mlpStruct.FileStructPointer
+		filePointerUUID := mlp.FileStructPointer
 
-		// verify-and-decrypt it
-		marshaledAEFileStruct, ok := userlib.DatastoreGet(fileStructPointer)
+		// verify and decrypt
+		marshalizedAuthenticatedFile, ok := userlib.DatastoreGet(filePointerUUID)
 		if !ok {
-			return uuid.Nil, errors.New("error occurred while retrieving marshaled AE of file struct from DS")
+			return uuid.Nil, errors.New("File doesn't exist.")
 		}
 
-		// unmarshal the AE of file struct
-		var aeFileStruct AuthenticatedEncryption
-		err = json.Unmarshal(marshaledAEFileStruct, &aeFileStruct)
+		var authenticatedFile AuthenticatedEncryption
+
+		err = json.Unmarshal(marshalizedAuthenticatedFile, &authenticatedFile)
 		if err != nil {
-			return uuid.Nil, errors.New("error occurred while unmarshaling the AE of file struct")
+			return uuid.Nil, errors.New("An error occurred while unmarshalizing the authenticated file.")
 		}
 
-		// get new MAC
-		newMAC, err := userlib.HMACEval(macKey, aeFileStruct.Ciphertext)
+		fileMACTag, err := userlib.HMACEval(macKey, authenticatedFile.Ciphertext)
 		if err != nil {
-			return uuid.Nil, errors.New("error occurred while getting new MAC of ciphertet")
+			return uuid.Nil, errors.New("An error occurred while generating a MAC tag for the authenticated file.")
 		}
 
-		// verify
-		if !userlib.HMACEqual(newMAC, aeFileStruct.MACtag) {
-			return uuid.Nil, errors.New("error occurred while verifying the file struct")
+		if !userlib.HMACEqual(fileMACTag, authenticatedFile.MACtag) {
+			return uuid.Nil, errors.New("Cannot verify the MAC tag of the file.")
 		}
 
-		// decrypt
-		fileStructBytes := userlib.SymDec(encKey, aeFileStruct.Ciphertext)
+		marshalizedFile := userlib.SymDec(encKey, authenticatedFile.Ciphertext)
 
-		var fileStruct File
-		err = json.Unmarshal(fileStructBytes, &fileStruct)
+		var file File
+
+		err = json.Unmarshal(marshalizedFile, &file)
 		if err != nil {
-			return uuid.Nil, errors.New("error occured while unmarshalizing the file struct 3")
+			return uuid.Nil, errors.New("An error occured while unmarshalizing the file.")
 		}
 
 		// create family pointer
-		var famPointer FamilyPointer
-		famPointer.FileStructPointer = fileStructPointer
-		famPointer.EncKey = encKey
-		famPointer.MACKey = macKey
-		famPointer.FileOwner = userdata.Username
-		famPointer.DirectRecipientName = recipientUsername
+		var familyPointer FamilyPointer
+		familyPointer.FileStructPointer = filePointerUUID
+		familyPointer.EncKey = encKey
+		familyPointer.MACKey = macKey
+		familyPointer.FileOwner = userdata.Username
+		familyPointer.DirectRecipientName = recipientUsername
 
-		famPointerUUID = uuid.New()
+		familyPointerUUID = uuid.New()
 
-		famPointerEncKey := userlib.Hash([]byte(string(famPointerUUID[:]) + "enc"))[:16]
-		famPointerMACKey := userlib.Hash([]byte(string(famPointerUUID[:]) + "mac"))[:16]
+		familyPointerEncKey := userlib.Hash([]byte(string(familyPointerUUID[:]) + "enc"))[:16]
+		familyPointerMACKey := userlib.Hash([]byte(string(familyPointerUUID[:]) + "mac"))[:16]
 
-		marshaledFamPointer, err := json.Marshal(famPointer)
+		marshalizedFamilyPointer, err := json.Marshal(familyPointer)
 		if err != nil {
-			return uuid.Nil, errors.New("error occured while marshalizing the fampointer")
+			return uuid.Nil, errors.New("An error occured while marshalizing the family pointer.")
 		}
 
-		var aeFamPointer AuthenticatedEncryption
-		aeFamPointer.Ciphertext = userlib.SymEnc(famPointerEncKey, userlib.RandomBytes(16), marshaledFamPointer)
-		aeFamPointer.MACtag, err = userlib.HMACEval(famPointerMACKey, aeFamPointer.Ciphertext)
+		var authenticatedFamilyPointer AuthenticatedEncryption
+
+		// encrypt and mac
+		authenticatedFamilyPointer.Ciphertext = userlib.SymEnc(familyPointerEncKey, userlib.RandomBytes(16), marshalizedFamilyPointer)
+		authenticatedFamilyPointer.MACtag, err = userlib.HMACEval(familyPointerMACKey, authenticatedFamilyPointer.Ciphertext)
 		if err != nil {
-			return uuid.Nil, errors.New("error occurred while creating MAC tag for AE of fam pointer")
+			return uuid.Nil, errors.New("An error occured while generating a MAC tag for the authenticated family pointer.")
 		}
 
-		// marshal ae fam pointer
-		marshaledAEFamPointer, err := json.Marshal(aeFamPointer)
+		marshalizedAuthenticatedFamilyPointer, err := json.Marshal(authenticatedFamilyPointer)
 		if err != nil {
-			return uuid.Nil, errors.New("error occurred while marshaling ae of fam pointer")
+			return uuid.Nil, errors.New("An error occured while marshalizing the authenticated family pointer.")
 		}
-		userlib.DatastoreSet(famPointerUUID, marshaledAEFamPointer)
+		userlib.DatastoreSet(familyPointerUUID, marshalizedAuthenticatedFamilyPointer)
 
-		// append to share list
+		// append to shared list
 		sharedListEncKey, err := userlib.HashKDF(userdata.SourceKey, []byte("encrypt key for shared list of "+filename))
 		if err != nil {
-			return uuid.Nil, errors.New("error occurred while creating an encryption key for shared list")
+			return uuid.Nil, errors.New("An error occured while generating an encryption key for the shared list.")
 		}
 		sharedListEncKey = userlib.Hash(sharedListEncKey)[:16]
 		sharedListMACKey, err := userlib.HashKDF(userdata.SourceKey, []byte("mac key for shared list of "+filename))
 		if err != nil {
-			return uuid.Nil, errors.New("error occurred while creating a mac key for shared list")
+			return uuid.Nil, errors.New("An error occured while generating a mac key for the shared list.")
 		}
 		sharedListMACKey = userlib.Hash(sharedListMACKey)[:16]
-		sharedListMACTag, err := userlib.HMACEval(sharedListMACKey, fileStruct.SharedListCipherText)
+		sharedListMACTag, err := userlib.HMACEval(sharedListMACKey, file.SharedListCipherText)
 		if err != nil {
-			return uuid.Nil, errors.New("error occurred while creating a mac tag for shared list")
+			return uuid.Nil, errors.New("An error occured while generating a MAC tag for the shared list.")
 		}
-		if !userlib.HMACEqual(sharedListMACTag, fileStruct.SharedListMACTag) {
-			return uuid.Nil, errors.New("error occurred while verifying the MAC tag for shared list")
+		if !userlib.HMACEqual(sharedListMACTag, file.SharedListMACTag) {
+			return uuid.Nil, errors.New("Cannot verify the MAC tag of the shared list.")
 		}
 
-		marshalizedSharedList := userlib.SymDec(sharedListEncKey, fileStruct.SharedListCipherText)
+		marshalizedSharedList := userlib.SymDec(sharedListEncKey, file.SharedListCipherText)
+
 		var sharedList map[string]userlib.UUID
-		// var sharedList []uuid.UUID *** i changed data structure
+
 		err = json.Unmarshal(marshalizedSharedList, &sharedList)
 		if err != nil {
-			return uuid.Nil, errors.New("error occurred while unmarshalizing marshalizedsharedlist")
+			return uuid.Nil, errors.New("An error occured while unmarshalizing the shared list.")
 		}
-		// sharedList = append(sharedList, famPointerUUID) *** i changed data structure
-		sharedList[recipientUsername] = famPointerUUID
+
+		sharedList[recipientUsername] = familyPointerUUID
 		updatedMarshalizedSharedList, err := json.Marshal(sharedList)
 		if err != nil {
-			return uuid.Nil, errors.New("error occurred while marshalizing the updated shared list")
-		}
-		// encrypt and MAC
-		fileStruct.SharedListCipherText = userlib.SymEnc(sharedListEncKey, userlib.RandomBytes(16), updatedMarshalizedSharedList)
-		fileStruct.SharedListMACTag, err = userlib.HMACEval(sharedListMACKey, fileStruct.SharedListCipherText)
-		if err != nil {
-			return uuid.Nil, errors.New("error occurred while generating a MAC tag for shared list")
+			return uuid.Nil, errors.New("An error occured while marshalizing the updated shared list.")
 		}
 
-		// re-marshal the file struct
-		marshaledFileStruct, err := json.Marshal(fileStruct)
+		// encrypt and mac
+		file.SharedListCipherText = userlib.SymEnc(sharedListEncKey, userlib.RandomBytes(16), updatedMarshalizedSharedList)
+		file.SharedListMACTag, err = userlib.HMACEval(sharedListMACKey, file.SharedListCipherText)
 		if err != nil {
-			return uuid.Nil, errors.New("error occurred while marshaling the file struct")
+			return uuid.Nil, errors.New("An error occured while generating a MAC tag for the shared list.")
 		}
 
-		// re-encrypt the file struct
-		var encryptedFileStruct AuthenticatedEncryption
-		encryptedFileStruct.Ciphertext = userlib.SymEnc(encKey, userlib.RandomBytes(16), marshaledFileStruct)
-		encryptedFileStruct.MACtag, err = userlib.HMACEval(macKey, encryptedFileStruct.Ciphertext)
+		marshalizedFile, err = json.Marshal(file)
 		if err != nil {
-			return uuid.Nil, errors.New("error occurred while re-encrypting file struct")
+			return uuid.Nil, errors.New("An error occured while marshalizing the file.")
 		}
 
-		// re-marshal the AE of file struct
-		marshaledEncryptedFileStruct, err := json.Marshal(encryptedFileStruct)
+		// encrypt and mac again
+		var newAuthenticatedFile AuthenticatedEncryption
+		newAuthenticatedFile.Ciphertext = userlib.SymEnc(encKey, userlib.RandomBytes(16), marshalizedFile)
+		newAuthenticatedFile.MACtag, err = userlib.HMACEval(macKey, newAuthenticatedFile.Ciphertext)
 		if err != nil {
-			return uuid.Nil, errors.New("error occurred while marshaling the AE of file struct")
+			return uuid.Nil, errors.New("An error occured while generating a MAC tag for the updated authenticated file.")
 		}
-		userlib.DatastoreSet(fileStructPointer, marshaledEncryptedFileStruct)
-	} else {
-		// get family pointer uuid
-		famPointerUUID = mlpStruct.FileStructPointer
 
-		// verify that family pointer has not been tampered with //
-		aeFamPointerBytes, ok := userlib.DatastoreGet(famPointerUUID)
+		marshalizedNewAuthenticatedFile, err := json.Marshal(newAuthenticatedFile)
+		if err != nil {
+			return uuid.Nil, errors.New("An error occured while marshalizing the updated authenticated file.")
+		}
+
+		userlib.DatastoreSet(filePointerUUID, marshalizedNewAuthenticatedFile)
+	} else { // case 2: recipient
+		familyPointerUUID = mlp.FileStructPointer
+
+		// verify and decrypt
+		marshalizedAuthenticatedFamilyPointer, ok := userlib.DatastoreGet(familyPointerUUID)
 		if !ok {
-			return uuid.Nil, errors.New("error occurred while retrieving marshaled ae of fam pointer")
+			return uuid.Nil, errors.New("Family pointer doesn't exist.")
 		}
 
-		// unmarshal to get AE
-		var aeFamPointer AuthenticatedEncryption
-		err = json.Unmarshal(aeFamPointerBytes, &aeFamPointer)
+		var authenticatedFamilyPointer AuthenticatedEncryption
+		err = json.Unmarshal(marshalizedAuthenticatedFamilyPointer, &authenticatedFamilyPointer)
 		if err != nil {
-			return uuid.Nil, errors.New("error occurred while unmarshaling ae of fam pointer")
+			return uuid.Nil, errors.New("An error occured while unmarshalizing the authenticated family pointer.")
 		}
 
 		// get keys
-		famPointerEncKey := userlib.Hash([]byte(string(famPointerUUID[:]) + "enc"))[:16]
-		famPointerMACKey := userlib.Hash([]byte(string(famPointerUUID[:]) + "mac"))[:16]
+		familyPointerEncKey := userlib.Hash([]byte(string(familyPointerUUID[:]) + "enc"))[:16]
+		familyPointerMACKey := userlib.Hash([]byte(string(familyPointerUUID[:]) + "mac"))[:16]
 
-		// get newMAC
-		newMAC, err := userlib.HMACEval(famPointerMACKey, aeFamPointer.Ciphertext)
+		// verify and decrypt
+		familyPointerMACTag, err := userlib.HMACEval(familyPointerMACKey, authenticatedFamilyPointer.Ciphertext)
 		if err != nil {
-			return uuid.Nil, errors.New("error occurred while creating new MAC for ae of fam pointer")
+			return uuid.Nil, errors.New("An error occured while generating a MAC tag for the authenticated family pointer.")
 		}
 
-		// verify
-		if !userlib.HMACEqual(newMAC, aeFamPointer.MACtag) {
-			return uuid.Nil, errors.New("error occurred while verifying MAC of ae of fam pointer")
+		if !userlib.HMACEqual(familyPointerMACTag, authenticatedFamilyPointer.MACtag) {
+			return uuid.Nil, errors.New("Cannot verify the MAC tag of the authenticated family pointer.")
 		}
 
-		famPointerBytes := userlib.SymDec(famPointerEncKey, aeFamPointer.Ciphertext)
-		var famPointer FamilyPointer
-		err = json.Unmarshal(famPointerBytes, &famPointer)
+		marshalizedFamilyPointer := userlib.SymDec(familyPointerEncKey, authenticatedFamilyPointer.Ciphertext)
+
+		var familyPointer FamilyPointer
+
+		err = json.Unmarshal(marshalizedFamilyPointer, &familyPointer)
 		if err != nil {
-			return uuid.Nil, errors.New("error occured while unmarshalizing family pointer bytes")
+			return uuid.Nil, errors.New("An error occured while unmarshalizing the family pointer.")
 		}
 
-		fileStructUUID := famPointer.FileStructPointer
-		marshaledAEFileStruct, ok := userlib.DatastoreGet(fileStructUUID)
+		fileUUID := familyPointer.FileStructPointer
+		marshalizedAuthenticatedFile, ok := userlib.DatastoreGet(fileUUID)
 		if !ok {
-			return uuid.Nil, errors.New("error occured while getting ae file struct")
+			return uuid.Nil, errors.New("File doesn't exist.")
 		}
 
-		var aeFileStruct AuthenticatedEncryption
-		err = json.Unmarshal(marshaledAEFileStruct, &aeFileStruct)
+		var authenticatedFile AuthenticatedEncryption
+
+		err = json.Unmarshal(marshalizedAuthenticatedFile, &authenticatedFile)
 		if err != nil {
-			return uuid.Nil, errors.New("error occured while unmarshalizing file struct")
+			return uuid.Nil, errors.New("An error occured while unmarshalizing the authenticated file.")
 		}
 
-		fileStructMACTag, err := userlib.HMACEval(famPointer.MACKey, aeFileStruct.Ciphertext)
+		fileMACTag, err := userlib.HMACEval(familyPointer.MACKey, authenticatedFile.Ciphertext)
 		if err != nil {
-			return uuid.Nil, errors.New("error occured while generating a mac tag")
+			return uuid.Nil, errors.New("An error occured while generating a MAC tag for the authenticated file.")
 		}
-
-		if !userlib.HMACEqual(fileStructMACTag, aeFileStruct.MACtag) {
-			return uuid.Nil, errors.New("error occured while verifying the file struct that it's not tampered")
+		if !userlib.HMACEqual(fileMACTag, authenticatedFile.MACtag) {
+			return uuid.Nil, errors.New("Cannot verify the MAC tag of the authenticated file.")
 		}
-
-		// create invitation struct
-		// put family pointer uuid in invitation struct encrypted with pke
-		// sign the encryption
-		// store invitaion struct in ds return uuid to it
 	}
-
-	// decrypt ciphertext to get marshaled uuid slice/array
-	// unmarshal the slice/array
-	// append to the array
-	// marshal and encrypt again
-
+	// create invitation
 	var invitation Invitation
-	recipientPubKey, ok := userlib.KeystoreGet(recipientUsername + "pke")
+
+	recipientPublicKey, ok := userlib.KeystoreGet(recipientUsername + "pke")
 	if !ok {
-		return uuid.Nil, errors.New("error occured while retrieving the recipient's public key")
+		return uuid.Nil, errors.New("Recipient doesn't exist.")
 	}
 
-	// marshal fam pointer UUID so we can do PKE on it
-	marshaledFamPointerUUID, err := json.Marshal(famPointerUUID)
+	marshalizedFamilyPointerUUID, err := json.Marshal(familyPointerUUID)
 	if err != nil {
-		return uuid.Nil, errors.New("error occurred while marshaling the UUID of fam pointer")
+		return uuid.Nil, errors.New("An error occured while marshalizing the family pointer UUID.")
 	}
 
-	// do PKE on marshal fam pointer, with recipient's public key
-	invitation.PKEFamilyPointerUUID, err = userlib.PKEEnc(recipientPubKey, marshaledFamPointerUUID)
+	// encrypt with the recipient's public key
+	invitation.PKEFamilyPointerUUID, err = userlib.PKEEnc(recipientPublicKey, marshalizedFamilyPointerUUID)
 	if err != nil {
-		return uuid.Nil, errors.New("error occured while encrypting the family pointer with the recipient's public key")
+		return uuid.Nil, errors.New("An error occured while encrypting the family pointer with the recipient's public key.")
 	}
 
-	// sign it with sender's signing key
+	// sign it with the sender's private key
 	invitation.SenderSignature, err = userlib.DSSign(userdata.SigKey, invitation.PKEFamilyPointerUUID)
 	if err != nil {
-		return uuid.Nil, errors.New("error occured while creating a digital signature on the family pointer")
+		return uuid.Nil, errors.New("An error occured while creating a digital signature on the family pointer.")
 	}
 
-	// marshal
 	marshalizedInvitation, err := json.Marshal(invitation)
 	if err != nil {
-		return uuid.Nil, errors.New("error occured while marshalizing the invitation")
+		return uuid.Nil, errors.New("An error occured while marshalizing the invitation.")
 	}
 
-	// store in datastore with new uuid
 	invitationUUID := uuid.New()
 	userlib.DatastoreSet(invitationUUID, marshalizedInvitation)
 
 	return invitationUUID, nil
 }
 
+/* Accepts the secure file share invitation created by senderUsername and located at invitationPtr in Datastore
+by giving the corresponding file a name of filename in the caller’s personal namespace. */
 func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid.UUID, filename string) error {
-	/*
-		error cases:
-		1. The caller already has a file with the given filename in their personal file namespace.
-		2. The caller is unable to verify that the secure file share invitation pointed to by the given invitationPtr was created by senderUsername.
-		3. The invitation is no longer valid due to revocation.
-		4. The caller is unable to verify the integrity of the secure file share invitation pointed to by the given invitationPtr.
-	*/
-
-	// get UUID of would-be MLP to check if caller already has a file with this given filename in their personal namespace
+	// get middle layer pointer
 	mlpUUIDBytes := userlib.Hash([]byte(filename))
 	mlpUUIDBytes = append(mlpUUIDBytes, userlib.Hash([]byte(userdata.Username))...)
 	mlpUUIDBytes = userlib.Hash(mlpUUIDBytes)[:16]
 	mlpUUID, err := uuid.FromBytes(mlpUUIDBytes)
 	if err != nil {
-		return errors.New("error occurred while generating UUID for marshaled MLP struct")
+		return errors.New("An error occurred while generating a MLP UUID.")
 	}
 
-	// check if file with this filename already exists in caller's personal namespace
+	// check if file with this filename already exists in the caller's personal namespace
 	_, ok := userlib.DatastoreGet(mlpUUID)
 	if ok {
-		return errors.New("error occurred, file with that name already exists in caller's personal namespace")
+		return errors.New("MLP already exists.")
 	}
 
-	// retrieve marshaled secure invitation struct from datastore
-	marshaledSecureInvitation, ok := userlib.DatastoreGet(invitationPtr)
+	marshalizedEncryptedInvitation, ok := userlib.DatastoreGet(invitationPtr)
 	if !ok {
-		return errors.New("error occurred while retrieving marshaled inv struct")
+		return errors.New("Invitation doesn't exist.")
 	}
 
-	// unmarshal the invitation struct
-	var invStruct Invitation
-	err = json.Unmarshal(marshaledSecureInvitation, &invStruct)
+	var invitation Invitation
+	err = json.Unmarshal(marshalizedEncryptedInvitation, &invitation)
 	if err != nil {
-		return errors.New("error occurred while unmarshaling invitation struct")
+		return errors.New("An error occured while unmarshalizing the invitation.")
 	}
 
-	// verify integrity/authenticity of the PKE in the invitation struct using verify key of owner
-	senderVerifyKey, ok := userlib.KeystoreGet(senderUsername + "ver")
+	// verify the signature with the sender's public key
+	senderVerKey, ok := userlib.KeystoreGet(senderUsername + "ver")
 	if !ok {
-		return errors.New("error occurred while retrieving sender verify key")
+		return errors.New("Sender's public verify key doesn't exist.")
 	}
-	err = userlib.DSVerify(senderVerifyKey, invStruct.PKEFamilyPointerUUID, invStruct.SenderSignature)
+	err = userlib.DSVerify(senderVerKey, invitation.PKEFamilyPointerUUID, invitation.SenderSignature)
 	if err != nil {
-		return errors.New("error occurred while verifying signature of sender")
+		return errors.New("Cannot verify the sender signature of the invitation.")
 	}
 
-	// decrypt the pkefamilypointeruuid using your PKE secret key
-	marshaledFamilyPointerUUID, err := userlib.PKEDec(userdata.PDecKey, invStruct.PKEFamilyPointerUUID)
+	// decrypt the invitation using the recipient's private key
+	marshalizedFamilyPointerUUID, err := userlib.PKEDec(userdata.PDecKey, invitation.PKEFamilyPointerUUID)
 	if err != nil {
-		return errors.New("error occured while decryting the pkefamilypointeruuid")
+		return errors.New("An error occured while decrypting the family pointer UUID.")
 	}
 
 	var familyPointerUUID uuid.UUID
-	err = json.Unmarshal(marshaledFamilyPointerUUID, &familyPointerUUID)
+
+	err = json.Unmarshal(marshalizedFamilyPointerUUID, &familyPointerUUID)
 	if err != nil {
-		return errors.New("error occurred while unmarshaling the family pointer UUID")
+		return errors.New("An error occured while unmarshalizing the family pointer UUID.")
 	}
 
-	// use the family pointer UUID to get the marshaled authenticated encryption family pointer
-	marshaledSecureFamPointer, ok := userlib.DatastoreGet(familyPointerUUID)
+	marshalizedAuthenticatedFamilyPointer, ok := userlib.DatastoreGet(familyPointerUUID)
 	if !ok {
-		return errors.New("error occurred while retrieving the marshaled authenticated encryption of fam pointer")
+		return errors.New("Familt pointer doesn't exist.")
 	}
-	////////////////// check from here
-	// unmarshal the autenc
-	var aeFamPointer AuthenticatedEncryption
-	err = json.Unmarshal(marshaledSecureFamPointer, &aeFamPointer)
+
+	// verify and decrypt
+	var authenticatedFamilyPointer AuthenticatedEncryption
+
+	err = json.Unmarshal(marshalizedAuthenticatedFamilyPointer, &authenticatedFamilyPointer)
 	if err != nil {
-		return errors.New("error occurred while unmarshaling the authenticated encryption of fam pointer")
+		return errors.New("An error occrred while unmarshalizing the authenticated family pointer.")
 	}
 
 	encKey := userlib.Hash([]byte(string(familyPointerUUID[:]) + "enc"))[:16]
 	macKey := userlib.Hash([]byte(string(familyPointerUUID[:]) + "mac"))[:16]
 
-	newMAC, err := userlib.HMACEval(macKey, aeFamPointer.Ciphertext)
+	familyPointerMACTag, err := userlib.HMACEval(macKey, authenticatedFamilyPointer.Ciphertext)
 	if err != nil {
-		return errors.New("error occured while getting new MAC of ciphertext")
+		return errors.New("An error occured while generating a MAC tag of the authenticated family pointer.")
 	}
 
-	// verify
-	if !userlib.HMACEqual(newMAC, aeFamPointer.MACtag) {
-		return errors.New("error occurred while verifying encryption of family pointer struct")
+	if !userlib.HMACEqual(familyPointerMACTag, authenticatedFamilyPointer.MACtag) {
+		return errors.New("Cannot verify the MAC tag of the family pointer.")
 	}
 
-	// decrypt
-	marshaledFamPointer := userlib.SymDec(encKey, aeFamPointer.Ciphertext)
-	// unmarshal the fam pointer
-	var famPointer FamilyPointer
-	err = json.Unmarshal(marshaledFamPointer, &famPointer)
+	marshalizedFamilyPointer := userlib.SymDec(encKey, authenticatedFamilyPointer.Ciphertext)
+
+	var familyPointer FamilyPointer
+
+	err = json.Unmarshal(marshalizedFamilyPointer, &familyPointer)
 	if err != nil {
-		return errors.New("error occurred while unmarshaling the fam pointer")
+		return errors.New("An error occured while unmarshalizing the family pointer.")
 	}
-
-	// NOW WE HAVE THE FAMILY POINTER STRUCT !!
 
 	// check if the file is valid
-	filePointerUUID := famPointer.FileStructPointer
-	marshaledAEFileStruct, ok := userlib.DatastoreGet(filePointerUUID)
+	fileUUID := familyPointer.FileStructPointer
+	marshalizedAuthenticatedFile, ok := userlib.DatastoreGet(fileUUID)
 	if !ok {
-		return errors.New("error occured while getting the file might be revoked or tampered")
+		return errors.New("File doesn't exist.")
 	}
 
-	var aeFileStruct AuthenticatedEncryption
-	err = json.Unmarshal(marshaledAEFileStruct, &aeFileStruct)
+	var authenticatedFile AuthenticatedEncryption
+
+	err = json.Unmarshal(marshalizedAuthenticatedFile, &authenticatedFile)
 	if err != nil {
-		return errors.New("error occured while unmarshalizing the file struct")
+		return errors.New("An error occured while unmarshalizing the authenticated file.")
 	}
 
-	fileStructMACTag, err := userlib.HMACEval(famPointer.MACKey, aeFileStruct.Ciphertext)
+	fileMACTag, err := userlib.HMACEval(familyPointer.MACKey, authenticatedFile.Ciphertext)
 	if err != nil {
-		return errors.New("error occured while creating a tag of file struct")
+		return errors.New("An error occured while generating a MAC tag for the authenticated file.")
 	}
 
-	if !userlib.HMACEqual(fileStructMACTag, aeFileStruct.MACtag) {
-		return errors.New("error occured while verifying the tage of file struct")
+	if !userlib.HMACEqual(fileMACTag, authenticatedFile.MACtag) {
+		return errors.New("Cannot verify the MAC tag of the file.")
 	}
 
-	// retrieve secure file struct UUID from famPointer
-	// fileStructUUID := famPointer.FileStructPointer
-
-	// create mlp with the right info
+	// create middle layer pointer with essential info
 	var mlp MiddleLayerPointer
 	mlp.FileStructPointer = familyPointerUUID
 	mlp.Filename = filename
 	mlp.HashedUsername = userlib.Hash([]byte(userdata.Username))
 	mlp.IsOwner = false
 
-	// marshal the mlp
-	marshaledMLP, err := json.Marshal(mlp)
+	marshalizedMLP, err := json.Marshal(mlp)
 	if err != nil {
-		return errors.New("error occurred while marshaling MLP")
+		return errors.New("An error occured while marshalizing the MLP.")
 	}
 
-	// create AE of MLP
-	var aeMLP AuthenticatedEncryption
+	var authenticatedMLP AuthenticatedEncryption
+
 	encMessage := "encrypting MLP of " + filename
 	macMessage := "tagging MLP of " + filename
-	aeMLP, err = userdata.AuthenticatedEncryption(marshaledMLP, encMessage, macMessage)
+	authenticatedMLP, err = userdata.AuthenticatedEncryption(marshalizedMLP, encMessage, macMessage)
 	if err != nil {
-		return errors.New("error occurred while creating authenticated encryption")
+		return errors.New("An error occured while doing authenticated encryption on the MLP.")
 	}
 
-	// marshal the ae
-	marshaledAEmlp, err := json.Marshal(aeMLP)
+	marshalizedAuthenticatedMLP, err := json.Marshal(authenticatedMLP)
 	if err != nil {
-		return errors.New("error occurred while marshaling")
+		return errors.New("An error occured while marshalizing the authenticated MLP.")
 	}
 
-	// store the marshaled AE of MLP in datastore with the right mlp
-	userlib.DatastoreSet(mlpUUID, marshaledAEmlp)
+	userlib.DatastoreSet(mlpUUID, marshalizedAuthenticatedMLP)
 
 	return nil
 }
 
+/* Revokes access to the corresponding file from recipientUsername and any other users
+with whom recipientUsername has shared the file. */
 func (userdata *User) RevokeAccess(filename string, recipientUsername string) error {
-	/*
-		returns error if:
-		filename doesn't exist
-		given filename is not currently shared with recipientUsername
-		revocation cannot complete due to malicious action
-	*/
-	// check if file exists in caller's personal namespace
+	// get middle layer pointer
 	mlpUUIDBytes := userlib.Hash([]byte(filename))
 	mlpUUIDBytes = append(mlpUUIDBytes, userlib.Hash([]byte(userdata.Username))...)
 	mlpUUIDBytes = userlib.Hash(mlpUUIDBytes)[:16]

@@ -282,6 +282,9 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 
 	// check if file with this filename already exists in caller's personal namespace
 	marshalizedAuthenticatedMLP, ok := userlib.DatastoreGet(mlpUUID)
+	if !ok {
+		return errors.New("MLP doesn't exist.")
+	}
 
 	var file File
 	var fileUUID userlib.UUID
@@ -327,7 +330,9 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 			if !ok {
 				return errors.New("Key doesn't exist.")
 			}
+
 			var authenticatedKeys AuthenticatedEncryption
+
 			err = json.Unmarshal(marshalizedAuthenticatedKeys, &authenticatedKeys)
 			if err != nil {
 				return errors.New("An error occured while unmarshalizing the authenticated keys.")

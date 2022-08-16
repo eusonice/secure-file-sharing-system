@@ -19,7 +19,7 @@ The users can take the following actions:
 7. share saved files with other users
 8. revoke access to previously shared files
 
-~~Insert image here~~
+![data structure](https://github.com/eusonice/secure-file-sharing-system/images/main/data-structures.png?raw=true)
 
 ## Notes: 
 There are two main servers:

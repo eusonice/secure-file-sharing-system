@@ -610,7 +610,7 @@ func (userdata *User) AppendToFile(filename string, content []byte) error {
 
 	err = json.Unmarshal(marshalizedAuthenticatedMLP, &authenticatedMLP)
 	if err != nil {
-		return errors.New("eAn rror occurred while unmarshalizing the authenticated MLP.")
+		return errors.New("An error occurred while unmarshalizing the authenticated MLP.")
 	}
 
 	encMessage := "encrypting MLP of " + filename

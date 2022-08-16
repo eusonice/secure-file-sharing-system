@@ -9,7 +9,7 @@ A client application for a secure file sharing system secured with cryptography.
 Since it is secured with cryptography, the server cannot view or tamper the data saved.
 
 
-![data structure](images/data-structures.png)
+![data structure](images/data-structure.png)
 
 
 ![share tree](images/share-tree.png)

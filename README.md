@@ -8,6 +8,13 @@ A client application for a secure file sharing system secured with cryptography.
 
 Since it is secured with cryptography, the server cannot view or tamper the data saved.
 
+
+![data structure](images/data-structures.png)
+
+
+![share tree](images/share-tree.png)
+
+
 ## Description:
 The users can take the following actions:
 1. authenticate with a username and password
@@ -18,8 +25,6 @@ The users can take the following actions:
 6. load saved files from the server
 7. share saved files with other users
 8. revoke access to previously shared files
-
-~~Insert image here~~
 
 ## Notes: 
 There are two main servers:

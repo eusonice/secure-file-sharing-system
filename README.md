@@ -2,7 +2,7 @@
 # End-to-End Encrypted File Sharing System
 
 ## Spec: 
-> The full spec can be read here: https://su22.cs161.org/proj2/
+> The full spec can be read [here](https://su22.cs161.org/proj2/)
 > 
 A client application for a secure file sharing system secured with cryptography.
 
